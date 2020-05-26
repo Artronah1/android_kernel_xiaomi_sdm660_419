@@ -823,6 +823,10 @@ __SYSCALL(__NR_rseq, sys_rseq)
 __SYSCALL(__NR_pidfd_send_signal, sys_pidfd_send_signal)
 #define __NR_pidfd_open 434
 __SYSCALL(__NR_pidfd_open, sys_pidfd_open)
+#define __NR_clone3 435
+__SYSCALL(__NR_clone3, sys_clone3)
+#define __NR_process_madvise 436
+__SYSCALL(__NR_process_madvise, sys_process_madvise)
 
 /*
  * Please add new compat syscalls above this comment and update
