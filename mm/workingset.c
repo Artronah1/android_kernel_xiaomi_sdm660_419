@@ -302,12 +302,12 @@ void lru_gen_refault(struct page *page, void *shadow)
 	 * Count the following two cases as stalls:
 	 * 1. For pages accessed through page tables, hotter pages pushed out
 	 *    hot pages which refaulted immediately.
-	 * 2. For pages accessed through file descriptors, numbers of accesses
-	 *    might have been beyond the limit.
+	 * 2. For pages accessed multiple times through file descriptors,
+	 *    they would have been protected by sort_folio().
 	 */
-	if (lru_gen_in_fault() || refs + workingset == BIT(LRU_REFS_WIDTH)) {
-		SetPageWorkingset(page);
-		mod_lruvec_state(lruvec, WORKINGSET_RESTORE, delta);
+	if (lru_gen_in_fault() || refs >= BIT(LRU_REFS_WIDTH) - 1) {
+		set_mask_bits(&page->flags, 0, LRU_REFS_MASK | BIT(PG_workingset));
+		mod_lruvec_state(lruvec, WORKINGSET_RESTORE_BASE + type, delta);
 	}
 unlock:
 	rcu_read_unlock();
