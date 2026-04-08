@@ -4562,6 +4562,8 @@ static void hci_user_passkey_notify_evt(struct hci_dev *hdev,
 
 	hci_dev_lock(hdev);
 
+	hci_dev_lock(hdev);
+
 	conn = hci_conn_hash_lookup_ba(hdev, ACL_LINK, &ev->bdaddr);
 	if (!conn)
 		goto unlock;
@@ -4584,6 +4586,8 @@ static void hci_keypress_notify_evt(struct hci_dev *hdev, struct sk_buff *skb)
 	struct hci_conn *conn;
 
 	BT_DBG("%s", hdev->name);
+
+	hci_dev_lock(hdev);
 
 	hci_dev_lock(hdev);
 
