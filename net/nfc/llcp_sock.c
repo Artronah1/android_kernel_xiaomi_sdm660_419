@@ -638,6 +638,16 @@ static int llcp_sock_release(struct socket *sock)
 		}
 	}
 
+<<<<<<< HEAD
+=======
+	if (sock->type == SOCK_RAW)
+		nfc_llcp_sock_unlink(&local->raw_sockets, sk);
+	else if (sk->sk_state == LLCP_CONNECTING)
+		nfc_llcp_sock_unlink(&local->connecting_sockets, sk);
+	else
+		nfc_llcp_sock_unlink(&local->sockets, sk);
+
+>>>>>>> d93e59fef1b3 (nfc: llcp: Fix use-after-free in llcp_sock_release())
 	if (llcp_sock->reserved_ssap < LLCP_SAP_MAX)
 		nfc_llcp_put_ssap(llcp_sock->local, llcp_sock->ssap);
 
