@@ -289,6 +289,7 @@ restart:
 				sock_graft(sk, newsock);
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 			/* Hand the caller the reference taken at the top of
 			 * the loop; it keeps sk alive across
@@ -298,6 +299,18 @@ restart:
 			 */
 
 >>>>>>> 11e073b5bde3 (Bluetooth: fix UAF in bt_accept_dequeue())
+=======
+			/* Hand the caller a reference taken while sk is
+			 * still locked.  bt_accept_unlink() just dropped
+			 * the accept-queue reference; without this hold a
+			 * concurrent teardown (e.g. l2cap_conn_del() ->
+			 * l2cap_sock_kill()) could free sk between
+			 * release_sock() and the caller using it.  Every
+			 * caller drops this with sock_put() when done.
+			 */
+			sock_hold(sk);
+
+>>>>>>> 63eabb41bc2c (Bluetooth: fix UAF in l2cap_sock_cleanup_listen() vs l2cap_conn_del())
 			release_sock(sk);
 			return sk;
 		}
