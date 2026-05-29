@@ -288,7 +288,6 @@ restart:
 			if (newsock)
 				sock_graft(sk, newsock);
 
-
 			/* Hand the caller a reference taken while sk is
 			 * still locked.  bt_accept_unlink() just dropped
 			 * the accept-queue reference; without this hold a
