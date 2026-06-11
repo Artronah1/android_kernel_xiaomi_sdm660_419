@@ -827,10 +827,14 @@ int qrtr_endpoint_post(struct qrtr_endpoint *ep, const void *data, size_t len)
 		goto err;
 	}
 
+<<<<<<< HEAD
 	if (cb->dst_port == QRTR_PORT_CTRL_LEGACY)
 		cb->dst_port = QRTR_PORT_CTRL;
 
 	if (!size || len != ALIGN(size, 4) + hdrlen)
+=======
+	if (!size || size > len || len != ALIGN(size, 4) + hdrlen)
+>>>>>>> d7b2fec89dfd (net: qrtr: fix 32-bit integer overflow in qrtr_endpoint_post())
 		goto err;
 
 	if (cb->dst_port != QRTR_PORT_CTRL && cb->type != QRTR_TYPE_DATA &&
