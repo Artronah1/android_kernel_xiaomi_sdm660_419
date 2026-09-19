@@ -1336,16 +1336,11 @@ static void add_desc_to_perf_list(struct irq_desc *desc, unsigned int perf_flag)
 
 static void affine_one_perf_thread(struct irqaction *action)
 {
-	const struct cpumask *mask = NULL;
-
 	if (!action->thread)
 		return;
 
-	if (action->flags & IRQF_PERF_AFFINE)
-		mask = cpu_perf_mask;
-
 	action->thread->flags |= PF_PERF_CRITICAL;
-	set_cpus_allowed_ptr(action->thread, mask);
+	set_bit(IRQTF_AFFINITY, &action->thread_flags);
 }
 
 static void unaffine_one_perf_thread(struct irqaction *action)
@@ -1354,7 +1349,7 @@ static void unaffine_one_perf_thread(struct irqaction *action)
 		return;
 
 	action->thread->flags &= ~PF_PERF_CRITICAL;
-	set_cpus_allowed_ptr(action->thread, cpu_all_mask);
+	set_bit(IRQTF_AFFINITY, &action->thread_flags);
 }
 
 static void affine_one_perf_irq(struct irq_desc *desc, unsigned int perf_flag)
