@@ -2029,7 +2029,7 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 		if (isolated_stalls++ >= 4)
 			return 0;
 
-		msleep(100);
+		congestion_wait(BLK_RW_ASYNC, msecs_to_jiffies(20));
 		/* We are about to die and free our memory. Return now. */
 		if (fatal_signal_pending(current))
 			return SWAP_CLUSTER_MAX;
