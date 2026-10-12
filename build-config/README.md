@@ -1,0 +1,102 @@
+Сборочные артефакты для кастомного ядра Redmi Note 6 Pro (**tulip** / **twolip** / **bouquet**).
+
+## Что внутри
+
+- **Kernel:** `android_kernel_xiaomi_sdm660_419` — ветка `android-4.19-stable-UNI`
+- **KernelSU-Next:** v12759
+- **SUSFS:** v1.5.7
+- **Hook:** `CONFIG_KSU_LSM_SECURITY_HOOKS=y` (LSM, не kprobes)
+- **Менеджер KSU:** v3.4.0-legacy (совместим по подписи `79e59011...`)
+
+## Структура
+
+build-config/
+├── README.md — этот файл
+├── config/
+│ ├── tulip-perf_defconfig — базовый defconfig (LOCALVERSION, CPU masks, FTS touchscreen)
+│ ├── ksu.config — фрагмент: KSU + SUSFS (все 15 опций)
+│ └── tulip-final.config — итоговый .config (для справки, ~160 KB)
+├── anykernel3/ — AnyKernel3 zip-упаковщик (прошивка через recovery sideload)
+└── scripts/
+└── build.sh — сборка в один шаг
+text
+
+
+## Требования
+
+- **Clang 12** — `aicp-clang/clang-r416183b` (Android 12.0.5, r416183b) ~1.5 GB
+- **Утилиты:** `make`, `bc`, `bison`, `flex`, `libssl-dev`, `zip`, `rsync`
+- **ОС:** Linux (x86_64), 8+ GB RAM, 30+ GB свободного места
+
+### Где взять Clang 12
+
+```bash
+mkdir -p ~/toolchains && cd ~/toolchains
+git clone --depth=1 https://github.com/AICP/prebuilts_clang_host_linux-x86_clang-r416183b.git aicp-clang
+export TOOLCHAIN=~/toolchains/aicp-clang
+
+Или любой совместимый Android Clang 12 / r416183b.
+Сборка
+bash
+
+# Из корня дерева ядра (где .git + arch/ + drivers/ + ...)
+export TOOLCHAIN=~/toolchains/aicp-clang
+./build-config/scripts/build.sh
+
+Результат: DuckG-KSU-SUSFS-tulip-YYYYMMDD-HHMM.zip в корне дерева.
+Действия
+bash
+
+./build-config/scripts/build.sh            # собрать
+./build-config/scripts/build.sh clean      # очистить out/
+./build-config/scripts/build.sh menuconfig # править .config
+
+Прошивка
+
+Через recovery (sideload):
+bash
+
+# 1. Перезагрузить в recovery
+adb reboot recovery
+
+# 2. Когда recovery загрузится — выбрать "Apply update from ADB"
+adb sideload DuckG-KSU-SUSFS-tulip-*.zip
+
+Или через TWRP/OrangeFox Install — перекинуть ZIP на устройство и установить.
+Восстановление при проблемах
+
+Перед прошивкой сохрани текущий boot:
+bash
+
+adb shell "su -c 'dd if=/dev/block/by-name/boot of=/sdcard/boot.img bs=4096'"
+adb pull /sdcard/boot.img ~/boot-backup-$(date +%Y%m%d).img
+adb shell "su -c 'rm /sdcard/boot.img'"
+
+При проблемах — fastboot flash boot boot-backup-YYYYMMDD.img.
+Известные особенности
+
+    CONFIG_SECURITY_SMACK — выключен. В дереве smack_lsm.c использует старый API (socket_smack *), несовместимый с 4.19.325 (sk_security_struct [1]). На Android используется SELinux.
+
+    CONFIG_CORESIGHT — выключен. Аналогичная проблема с API.
+
+    CONFIG_TOUCHSCREEN_SYNAPTICS_DSX_E7S — выключен. tulip использует Novatek/FTS, не Synaptics. mdss_io_util.c и mdss_dsi_panel.c защищены патчем a143e2c60e00.
+
+    CONFIG_KPROBES — выключен. KSU работает через LSM security hook, стабильнее на 4.19.
+
+Обновление от upstream
+bash
+
+git fetch upstream
+git checkout android-4.19-stable-UNI
+git merge upstream/android-4.19-stable-UNI   # или rebase
+git push origin android-4.19-stable-UNI
+
+Ссылки
+
+    KernelSU-Next
+
+    SUSFS4KSU
+
+    AnyKernel3
+
+    Оригинальное дерево
