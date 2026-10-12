@@ -235,3 +235,26 @@ adb shell "su -c 'dmesg | grep -i baseband'"
     patches/bbg/ — исходники BBG (пропатченные для 4.19)
 
     config/perf-tweaks.config — CONFIG_BBG=y
+
+## CIP security fixes (2026-10-12)
+
+Cherry-picked 6 fixes from CIP `v4.19.325-cip133`:
+
+| Fix | File | Type |
+|-----|------|------|
+| `mm/slub`: avoid accessing metadata when pointer is invalid | `mm/slub.c` | hardening |
+| `mm/khugepaged`: fix `->anon_vma` race | `mm/khugepaged.c` | race |
+| `ext4`: avoid allocate block from corrupted group | `fs/ext4/mballoc.c` | corruption |
+| `ext4`: inline data to extents on truncate | `fs/ext4/inode.c` | truncate |
+| `net`: fanout UAF in `packet_release()` | `net/packet/af_packet.c` | UAF |
+| `usb/storage`: memory leak in bulk transport | `drivers/usb/storage/transport.c` | leak |
+
+**Verified:**
+- ext4 (`/system`, `/vendor`, `/metadata`, APEX) — mount clean
+- F2FS (`/data`) — mount clean, no errors in dmesg
+- Wi-Fi (`wlan0 UP`), RIL (`Qualcomm RIL 1.0`)
+- Full stack intact: KSU-Next, SUSFS, BBG, BBR, MGLRU, WireGuard
+
+**Remaining CIP:** `v4.19.325-cip134`, `cip135`, `cip136` — можно взять ещё фиксы при желании.
+
+**Cherry-pick source:** `git log v4.19.325..v4.19.325-cip133 --grep="CVE"` (5 CVE) + ручной отбор по файлам.
