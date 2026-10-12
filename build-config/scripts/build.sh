@@ -61,7 +61,8 @@ esac
 echo "=== 1. Сборка .config ==="
 mkdir -p "$OUT_DIR"
 cat "$BUILD_CONFIG_DIR/config/tulip-perf_defconfig" \
-    "$BUILD_CONFIG_DIR/config/ksu.config" > "$OUT_DIR/.config"
+    "$BUILD_CONFIG_DIR/config/ksu.config" \
+    "$BUILD_CONFIG_DIR/config/perf-tweaks.config" > "$OUT_DIR/.config"
 
 echo "=== 2. olddefconfig ==="
 yes "" | make -C "$KERNEL_DIR" O="$OUT_DIR" ARCH=arm64 \

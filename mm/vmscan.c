@@ -3360,6 +3360,13 @@ restart:
 		old_gen = page_update_gen(page, new_gen);
 		if (old_gen >= 0 && old_gen != new_gen)
 			update_batch_size(priv, page, old_gen, new_gen);
+#ifdef CONFIG_LRU_GEN_EXEC_PROMOTE
+			else if ((walk->vma->vm_flags & VM_EXEC) && page_is_file_cache(page)) {
+				int promoted = page_update_gen(page, MAX_NR_GENS - 1);
+				if (promoted >= 0 && promoted != MAX_NR_GENS - 1)
+					update_batch_size(priv, page, promoted, MAX_NR_GENS - 1);
+			}
+#endif
 	}
 
 	if (i < PTRS_PER_PTE && get_next_vma(walk, PMD_MASK, PAGE_SIZE, &start, &end))
@@ -3451,6 +3458,13 @@ static void walk_pmd_range_locked(pud_t *pud, unsigned long next, struct vm_area
 		old_gen = page_update_gen(page, new_gen);
 		if (old_gen >= 0 && old_gen != new_gen)
 			update_batch_size(priv, page, old_gen, new_gen);
+#ifdef CONFIG_LRU_GEN_EXEC_PROMOTE
+			else if ((walk->vma->vm_flags & VM_EXEC) && page_is_file_cache(page)) {
+			        int promoted = page_update_gen(page, MAX_NR_GENS - 1);
+			        if (promoted >= 0 && promoted != MAX_NR_GENS - 1)
+			                update_batch_size(priv, page, promoted, MAX_NR_GENS - 1);
+			}
+#endif
 next:
 		i = i > MIN_LRU_BATCH ? 0 :
 		    find_next_bit(priv->bitmap, MIN_LRU_BATCH, i) + 1;
@@ -4050,6 +4064,10 @@ void lru_gen_look_around(struct page_vma_mapped_walk *pvmw)
 		old_gen = page_lru_gen(page);
 		if (old_gen < 0)
 			SetPageReferenced(page);
+#ifdef CONFIG_LRU_GEN_EXEC_PROMOTE
+		else if ((pvmw->vma->vm_flags & VM_EXEC) && page_is_file_cache(page))
+			__set_bit(i, bitmap);
+#endif
 		else if (old_gen != new_gen)
 			__set_bit(i, bitmap);
 	}

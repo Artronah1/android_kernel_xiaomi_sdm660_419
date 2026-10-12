@@ -853,6 +853,17 @@ config LRU_GEN_STATS
 	  This option has a per-memcg and per-node memory overhead.
 # }
 
+
+config LRU_GEN_EXEC_PROMOTE
+	bool "Promote mapped executable file pages after first usage"
+	depends on LRU_GEN
+	default y
+	help
+	  Promote mapped executable file pages (e.g. app code) after first
+	  usage to prevent MGLRU from evicting them too eagerly. Mirrors
+	  the classical LRU behavior for mapped executable pages.
+	  If unsure, say Y.
+
 endmenu
 
 config VM_MAX_READAHEAD
