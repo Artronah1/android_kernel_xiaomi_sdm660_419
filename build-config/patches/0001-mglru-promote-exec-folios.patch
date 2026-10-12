@@ -1,0 +1,116 @@
+From 55a5ce494b72e9924b709368be35116e2883ab05 Mon Sep 17 00:00:00 2001
+From: Artronah1 <artronah@gmail.com>
+Date: Mon, 12 Oct 2026 13:37:40 +0300
+Subject: [PATCH] mm: MGLRU: promote mapped executable file pages
+
+- mm/Kconfig: add CONFIG_LRU_GEN_EXEC_PROMOTE
+- mm/vmscan.c: promote executable file-backed pages after first usage
+  in walk_pte_range, walk_pmd_range_locked, lru_gen_look_around
+- build-config: enable LRU_GEN_EXEC_PROMOTE, save patch
+---
+ build-config/config/perf-tweaks.config | 11 +++++++++++
+ build-config/scripts/build.sh          |  3 ++-
+ mm/Kconfig                             | 11 +++++++++++
+ mm/vmscan.c                            | 18 ++++++++++++++++++
+ 4 files changed, 42 insertions(+), 1 deletion(-)
+ create mode 100644 build-config/config/perf-tweaks.config
+
+diff --git a/build-config/config/perf-tweaks.config b/build-config/config/perf-tweaks.config
+new file mode 100644
+index 000000000000..eb3bdbc80fcb
+--- /dev/null
++++ b/build-config/config/perf-tweaks.config
+@@ -0,0 +1,11 @@
++# TCP BBR + FQ (default BBR)
++CONFIG_TCP_CONG_BBR=y
++CONFIG_DEFAULT_BBR=y
++CONFIG_NET_SCH_FQ=y
++
++# ZRAM ZSTD
++CONFIG_CRYPTO_ZSTD=y
++CONFIG_ZRAM_DEF_COMP_ZSTD=y
++
++# MGLRU: promote mapped executable file pages after first usage
++CONFIG_LRU_GEN_EXEC_PROMOTE=y
+diff --git a/build-config/scripts/build.sh b/build-config/scripts/build.sh
+index 82e676e69e96..8b6e34898018 100755
+--- a/build-config/scripts/build.sh
++++ b/build-config/scripts/build.sh
+@@ -61,7 +61,8 @@ esac
+ echo "=== 1. Сборка .config ==="
+ mkdir -p "$OUT_DIR"
+ cat "$BUILD_CONFIG_DIR/config/tulip-perf_defconfig" \
+-    "$BUILD_CONFIG_DIR/config/ksu.config" > "$OUT_DIR/.config"
++    "$BUILD_CONFIG_DIR/config/ksu.config" \
++    "$BUILD_CONFIG_DIR/config/perf-tweaks.config" > "$OUT_DIR/.config"
+ 
+ echo "=== 2. olddefconfig ==="
+ yes "" | make -C "$KERNEL_DIR" O="$OUT_DIR" ARCH=arm64 \
+diff --git a/mm/Kconfig b/mm/Kconfig
+index 8e2feec0f099..ee4e9545010c 100644
+--- a/mm/Kconfig
++++ b/mm/Kconfig
+@@ -853,6 +853,17 @@ config LRU_GEN_STATS
+ 	  This option has a per-memcg and per-node memory overhead.
+ # }
+ 
++
++config LRU_GEN_EXEC_PROMOTE
++	bool "Promote mapped executable file pages after first usage"
++	depends on LRU_GEN
++	default y
++	help
++	  Promote mapped executable file pages (e.g. app code) after first
++	  usage to prevent MGLRU from evicting them too eagerly. Mirrors
++	  the classical LRU behavior for mapped executable pages.
++	  If unsure, say Y.
++
+ endmenu
+ 
+ config VM_MAX_READAHEAD
+diff --git a/mm/vmscan.c b/mm/vmscan.c
+index 2e24648572a0..96b6cbbf5429 100644
+--- a/mm/vmscan.c
++++ b/mm/vmscan.c
+@@ -3360,6 +3360,13 @@ static bool walk_pte_range(pmd_t *pmd, unsigned long start, unsigned long end,
+ 		old_gen = page_update_gen(page, new_gen);
+ 		if (old_gen >= 0 && old_gen != new_gen)
+ 			update_batch_size(priv, page, old_gen, new_gen);
++#ifdef CONFIG_LRU_GEN_EXEC_PROMOTE
++			else if ((walk->vma->vm_flags & VM_EXEC) && page_is_file_cache(page)) {
++				int promoted = page_update_gen(page, MAX_NR_GENS - 1);
++				if (promoted >= 0 && promoted != MAX_NR_GENS - 1)
++					update_batch_size(priv, page, promoted, MAX_NR_GENS - 1);
++			}
++#endif
+ 	}
+ 
+ 	if (i < PTRS_PER_PTE && get_next_vma(walk, PMD_MASK, PAGE_SIZE, &start, &end))
+@@ -3451,6 +3458,13 @@ static void walk_pmd_range_locked(pud_t *pud, unsigned long next, struct vm_area
+ 		old_gen = page_update_gen(page, new_gen);
+ 		if (old_gen >= 0 && old_gen != new_gen)
+ 			update_batch_size(priv, page, old_gen, new_gen);
++#ifdef CONFIG_LRU_GEN_EXEC_PROMOTE
++			else if ((walk->vma->vm_flags & VM_EXEC) && page_is_file_cache(page)) {
++			        int promoted = page_update_gen(page, MAX_NR_GENS - 1);
++			        if (promoted >= 0 && promoted != MAX_NR_GENS - 1)
++			                update_batch_size(priv, page, promoted, MAX_NR_GENS - 1);
++			}
++#endif
+ next:
+ 		i = i > MIN_LRU_BATCH ? 0 :
+ 		    find_next_bit(priv->bitmap, MIN_LRU_BATCH, i) + 1;
+@@ -4050,6 +4064,10 @@ void lru_gen_look_around(struct page_vma_mapped_walk *pvmw)
+ 		old_gen = page_lru_gen(page);
+ 		if (old_gen < 0)
+ 			SetPageReferenced(page);
++#ifdef CONFIG_LRU_GEN_EXEC_PROMOTE
++		else if ((pvmw->vma->vm_flags & VM_EXEC) && page_is_file_cache(page))
++			__set_bit(i, bitmap);
++#endif
+ 		else if (old_gen != new_gen)
+ 			__set_bit(i, bitmap);
+ 	}
+-- 
+2.56.0
+
