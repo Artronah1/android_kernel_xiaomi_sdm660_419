@@ -994,12 +994,15 @@ struct task_struct {
 	 * schedule()			  if (p->on_rq && ..) // false
 	 *   smp_mb__after_spinlock();	  if (smp_load_acquire(&p->on_cpu) && //true
 	 *   deactivate_task()		      ttwu_queue_wakelist())
-	 *     p->on_rq = 0;			p->sched_remote_wakeup = Y;
+	 *     p->on_rq = 0;			  p->sched_remote_wakeup = Y;
 	 *
 	 * guarantees all stores of 'current' are visible before
 	 * ->sched_remote_wakeup gets used, so it can be in this word.
 	 */
 	unsigned			sched_remote_wakeup:1;
+
+	/* Save user-dumpable when mm goes away */
+	unsigned			user_dumpable:1;
 
 	/* Bit to tell LSMs we're in execve(): */
 	unsigned			in_execve:1;
