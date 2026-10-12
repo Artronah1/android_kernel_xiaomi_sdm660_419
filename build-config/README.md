@@ -100,3 +100,60 @@ git push origin android-4.19-stable-UNI
     AnyKernel3
 
     Оригинальное дерево
+
+## MGLRU: promote executable file pages (2026-10-12)
+
+Добавлен патч `patches/0001-mglru-promote-exec-folios.patch`, который
+промоутит **mapped executable file pages** (код приложений, `.so`) после
+первого использования. Это компенсирует слабое место MGLRU — исполняемый
+код вытесняется слишком агрессивно по сравнению с классическим LRU.
+
+### Эффект
+- Лучше удержание кода в памяти
+- Меньше I/O thrashing
+- Быстрее холодный старт приложений
+
+### Реализация
+- `mm/Kconfig`: `CONFIG_LRU_GEN_EXEC_PROMOTE`
+- `mm/vmscan.c`: promote в 3 местах:
+  - `walk_pte_range` (PTE, `walk->vma`)
+  - `walk_pmd_range_locked` (PMD, `walk->vma`)
+  - `lru_gen_look_around` (`pvmw->vma`)
+- `build-config/config/perf-tweaks.config`: `CONFIG_LRU_GEN_EXEC_PROMOTE=y`
+
+### Проверка
+```bash
+adb shell "su -c 'cat /sys/kernel/mm/lru_gen/enabled'"
+# → 0x0001
+
+adb shell "su -c 'cat /sys/kernel/mm/lru_gen/min_ttl_ms'"
+# → 0
+Проверенная сборка
+
+    Дата: 2026-10-12
+
+    Ядро: 22 056 678 байт
+
+    ZIP: DuckG-KSU-SUSFS-BBR-ZSTD-MGLRU-tulip-*.zip (17 461 390)
+
+    Статус: boot OK, MGLRU 0x0001, BBR, ZRAM [zstd], KSU/SUSFS работают
+    EOF
+
+cat build-config/README.md | tail -50
+
+## 🎯 Commit + push
+
+```bash
+cd ~/Projects/kernels/kernel-duckyduck-419
+
+git status --short
+
+git add build-config/README.md build-config/patches/
+
+git commit -m "docs: add MGLRU promote section to README, save MGLRU patch
+
+- build-config/README.md: MGLRU exec-promote documentation
+- build-config/patches/0001-mglru-promote-exec-folios.patch: patch from commit 55a5ce49"
+
+git log --oneline -5
+git push origin android-4.19-stable-UNI
