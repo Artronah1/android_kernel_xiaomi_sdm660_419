@@ -151,3 +151,10 @@ kernel/configs/android-*.cfg
 
 # Build log
 log.txt
+
+# Build artifacts (custom)
+build.log
+/out/
+*.zip
+*.img
+*.bak*
