@@ -13,7 +13,11 @@ extern bool enable_gesture_mode;
 extern bool synaptics_gesture_enable_flag;
 #elif defined(CONFIG_MACH_XIAOMI_TULIP) || defined(CONFIG_MACH_XIAOMI_WHYRED)
 extern bool focal_gesture_mode;
+#ifdef CONFIG_TOUCHSCREEN_SYNAPTICS_DSX_E7S
 extern bool synaptics_gesture_func_on;
+#else
+#define synaptics_gesture_func_on false
+#endif
 #endif
 #endif
 
