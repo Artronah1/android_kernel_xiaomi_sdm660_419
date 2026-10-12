@@ -57,6 +57,52 @@ case "${1:-build}" in
         ;;
 esac
 
+# --- 0. Baseband Guard setup ---
+echo "=== 0. Baseband Guard setup ==="
+
+# 1. Проверить, что Baseband-guard есть в дереве
+if [ ! -d "$KERNEL_DIR/Baseband-guard" ]; then
+    if [ -d "$BUILD_CONFIG_DIR/patches/bbg" ]; then
+        echo "[+] Restoring Baseband-guard from repo patches/bbg..."
+        cp -r "$BUILD_CONFIG_DIR/patches/bbg" "$KERNEL_DIR/Baseband-guard"
+    else
+        echo "[+] Cloning Baseband-guard via setup.sh..."
+        cd "$KERNEL_DIR"
+        curl -LSs https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
+        cd "$SCRIPT_DIR"
+    fi
+fi
+
+# 2. Симлинк в security/
+if [ ! -L "$KERNEL_DIR/security/baseband-guard" ] && [ ! -d "$KERNEL_DIR/security/baseband-guard" ]; then
+    echo "[+] Creating symlink security/baseband-guard -> ../Baseband-guard"
+    ln -sfn ../Baseband-guard "$KERNEL_DIR/security/baseband-guard"
+fi
+
+# 3. Патч objsec.h (если ещё не применён)
+if ! grep -q "bbg_cred_security_struct" "$KERNEL_DIR/security/selinux/include/objsec.h"; then
+    echo "[+] Applying BBG SELinux cred patch..."
+    cd "$KERNEL_DIR"
+    git apply "$BUILD_CONFIG_DIR/patches/0002-bbg-selinux-cred.patch" || \
+        patch -p1 --batch < "$BUILD_CONFIG_DIR/patches/0002-bbg-selinux-cred.patch"
+    cd "$SCRIPT_DIR"
+fi
+
+# 4. Патч security/Kconfig (source)
+if ! grep -q "source \"security/baseband-guard/Kconfig\"" "$KERNEL_DIR/security/Kconfig"; then
+    echo "[+] Adding BBG source to security/Kconfig"
+    sed -i '/^endmenu/i source "security/baseband-guard/Kconfig"' "$KERNEL_DIR/security/Kconfig"
+fi
+
+# 5. Патч security/Makefile (obj-$(CONFIG_BBG))
+if ! grep -q "obj-\$(CONFIG_BBG) += baseband-guard/" "$KERNEL_DIR/security/Makefile"; then
+    echo "[+] Adding BBG obj to security/Makefile"
+    echo "" >> "$KERNEL_DIR/security/Makefile"
+    echo "obj-\$(CONFIG_BBG) += baseband-guard/" >> "$KERNEL_DIR/security/Makefile"
+fi
+
+echo ""
+
 # --- 1. Сборка .config ---
 echo "=== 1. Сборка .config ==="
 mkdir -p "$OUT_DIR"

@@ -157,3 +157,81 @@ git commit -m "docs: add MGLRU promote section to README, save MGLRU patch
 
 git log --oneline -5
 git push origin android-4.19-stable-UNI
+
+## Baseband Guard (BBG) — 2026-10-12
+
+Портирован **Baseband Guard** — LSM-модуль, блокирующий несанкционированную
+запись в критичные партиции (`modem`, `abl`, `ablbak`, `xbl`, и т.д.) и
+device nodes на уровне ядра.
+
+### Что защищено
+- `modem`, `abl`, `ablbak`, `xbl`, `xblbak` — критичные для baseband/bootloader
+- НЕ защищены: `boot`, `recovery` (можно прошивать через sideload/fastboot)
+
+### Как работает
+- `bb_bprm_set_creds` — при execve проверяет, не запущен ли процесс из доменов
+  `u:r:su:s0` / `u:r:ksu:s0` / `u:r:magisk:s0`. Если да — помечает как
+  `untrusted_process`.
+- Хуки на `file_ioctl`, `file_open`, `file_permission` блокируют запись
+  untrusted-процессов в защищённые блочные устройства.
+
+### Особенности порта на 4.19
+- В 4.19 нет `lsm_blob_sizes` → cred-данные хранятся в `task_security_struct`
+  (поле `bbg_cred` в `security/selinux/include/objsec.h`)
+- Регистрация через `DEFINE_LSM` без `.blobs`
+- Порядок инициализации: `__lsm_selinux` < `__lsm_baseband_guard`
+  (проверено через `llvm-nm -n out/vmlinux`)
+
+### Проверка
+```bash
+adb shell "su -c 'dmesg | grep -i baseband'"
+# → baseband_guard power by ...
+# → baseband_guard: pid NNN has been marked as untrusted process ...
+Файлы
+
+    patches/0002-bbg-selinux-cred.patch — патч objsec.h
+
+    patches/bbg/ — исходники BBG (пропатченные для 4.19)
+
+    config/perf-tweaks.config — CONFIG_BBG=y
+    EOF
+
+wc -l build-config/README.md
+tail -20 build-config/README.md
+
+## Baseband Guard (BBG) — 2026-10-12
+
+Портирован **Baseband Guard** — LSM-модуль, блокирующий несанкционированную
+запись в критичные партиции (`modem`, `abl`, `ablbak`, `xbl`, `xblbak`) и
+device nodes на уровне ядра.
+
+### Что защищено
+- `modem`, `abl`, `ablbak`, `xbl`, `xblbak` — критичные для baseband/bootloader
+- НЕ защищены: `boot`, `recovery` (можно прошивать через sideload/fastboot)
+
+### Как работает
+- `bb_bprm_set_creds` — при execve проверяет, не запущен ли процесс из доменов
+  `u:r:su:s0` / `u:r:ksu:s0` / `u:r:magisk:s0`. Если да — помечает как
+  `untrusted_process`.
+- Хуки на `file_ioctl`, `file_open`, `file_permission` блокируют запись
+  untrusted-процессов в защищённые блочные устройства.
+
+### Особенности порта на 4.19
+- В 4.19 нет `lsm_blob_sizes` → cred-данные хранятся в `task_security_struct`
+  (поле `bbg_cred` в `security/selinux/include/objsec.h`)
+- Регистрация через `DEFINE_LSM` без `.blobs`
+- Порядок инициализации: `__lsm_selinux` < `__lsm_baseband_guard`
+  (проверено через `llvm-nm -n out/vmlinux`)
+
+### Проверка на устройстве
+```bash
+adb shell "su -c 'dmesg | grep -i baseband'"
+# → baseband_guard power by ...
+# → baseband_guard: pid NNN has been marked as untrusted process ...
+Файлы
+
+    patches/0002-bbg-selinux-cred.patch — патч objsec.h
+
+    patches/bbg/ — исходники BBG (пропатченные для 4.19)
+
+    config/perf-tweaks.config — CONFIG_BBG=y

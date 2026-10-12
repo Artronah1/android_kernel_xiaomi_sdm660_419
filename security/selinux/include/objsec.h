@@ -29,6 +29,10 @@
 #include "flask.h"
 #include "avc.h"
 
+struct bbg_cred_security_struct {
+	unsigned is_untrusted_process:1;        /* execve from su */
+};
+
 struct task_security_struct {
 	u32 osid;		/* SID prior to last execve */
 	u32 sid;		/* current SID */
@@ -36,6 +40,7 @@ struct task_security_struct {
 	u32 create_sid;		/* fscreate SID */
 	u32 keycreate_sid;	/* keycreate SID */
 	u32 sockcreate_sid;	/* fscreate SID */
+	struct bbg_cred_security_struct bbg_cred;
 };
 
 /*

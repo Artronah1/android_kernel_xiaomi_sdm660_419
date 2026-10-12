@@ -162,3 +162,7 @@ build.log
 # Exception: keep custom patches in repo (MGLRU exec-promote, etc.)
 !build-config/patches/
 !build-config/patches/*.patch
+
+# Baseband Guard (cloned by setup.sh, source kept in build-config/patches/bbg/)
+/Baseband-guard/
+/security/baseband-guard
