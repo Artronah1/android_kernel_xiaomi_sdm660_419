@@ -258,3 +258,44 @@ Cherry-picked 6 fixes from CIP `v4.19.325-cip133`:
 **Remaining CIP:** `v4.19.325-cip134`, `cip135`, `cip136` — можно взять ещё фиксы при желании.
 
 **Cherry-pick source:** `git log v4.19.325..v4.19.325-cip133 --grep="CVE"` (5 CVE) + ручной отбор по файлам.
+
+## Final state (2026-10-12)
+
+**Kernel:** 4.19.325-st4-perf+DuckG
+**Size:** 22 059 714 bytes
+**Security fixes:** 24 (CIP v4.19.325-cip133..cip136 + LPE)
+
+### Stack
+- KernelSU-Next 12759 + SUSFS 1.5.7 (LSM hook)
+- Baseband Guard (BBG) — ported to 4.19
+- BBR + NET_SCH_FQ
+- WireGuard 1.0.0
+- MGLRU + exec-promote (custom patch)
+- ZRAM LZ4/ZSTD
+- Hardening: SLAB_FREELIST_RANDOM + HARDENED, STACKPROTECTOR_STRONG,
+  STRICT_KERNEL_RWX, INIT_ON_ALLOC_DEFAULT_ON, PANIC_ON_OOPS
+- KSM disabled (runtime)
+
+### CVE fixed
+- CVE-2026-43284 (Dirty Frag) — xfrm/ESP
+- CVE-2026-46333 (ptrace) — get_dumpable
+- CVE-2024-43093 (ZWC path filter) — fs/namei
+- + 21 others from CIP
+
+### Verified (device)
+- Root: u:r:su:s0
+- BBG: dd to apdp → Operation not permitted
+- ext4 (/system, /vendor, /metadata), F2FS (/data, /cache) — clean
+- Wi-Fi (wlan0 UP), RIL (Qualcomm RIL 1.0) — working
+- eMMC: mmcblk0 + 64 partitions
+- Duck Detector: 0 DANGER
+- No Oops/BUG in dmesg
+
+### Tags
+v1.0.0-ksu-susfs-bbr-zstd-mglru
+v1.1.0-bbg
+v1.2.0-hardened
+v1.3.0-cip-fixes
+v1.4.0-cip-13
+v1.4.1-lpe
+v1.4.2-misc
