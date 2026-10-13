@@ -25,6 +25,11 @@ ZIP_NAME="DuckG-KSU-SUSFS-tulip-$(date +%Y%m%d-%H%M).zip"
 ZIP_PATH="$KERNEL_DIR/$ZIP_NAME"
 
 # --- Toolchain ---
+# Дефолтный Clang 20 (AOSP r547379), если TOOLCHAIN не задан
+if [ -z "$TOOLCHAIN" ]; then
+    TOOLCHAIN="$HOME/Projects/kernels/toolchains/aosp-clang/clang-r547379"
+fi
+
 if [ -n "$TOOLCHAIN" ]; then
     export PATH="$TOOLCHAIN/bin:$PATH"
 fi
@@ -33,6 +38,12 @@ if ! command -v clang >/dev/null 2>&1; then
     echo "ERROR: clang не найден. Установите TOOLCHAIN=/path/to/clang или добавьте в PATH."
     exit 1
 fi
+
+echo "=== Toolchain ==="
+echo "TOOLCHAIN=$TOOLCHAIN"
+clang --version | head -2
+which clang ld.lld
+echo ""
 
 echo "=== Toolchain ==="
 clang --version | head -2
