@@ -2335,7 +2335,12 @@ int f2fs_read_multi_pages(struct compress_ctx *cc, struct bio **bio_ret,
 		ret = -EIO;
 		goto out_put_dnode;
 	}
-	f2fs_bug_on(sbi, dn.data_blkaddr != COMPRESS_ADDR);
+	if (f2fs_sanity_check_cluster(&dn) ||
+	    dn.data_blkaddr != COMPRESS_ADDR) {
+		f2fs_handle_error(sbi, ERROR_CORRUPTED_CLUSTER);
+		ret = -EFSCORRUPTED;
+		goto out_put_dnode;
+	}
 
 skip_reading_dnode:
 	for (i = 1; i < cc->cluster_size; i++) {
@@ -2348,8 +2353,9 @@ skip_reading_dnode:
 		if (!__is_valid_data_blkaddr(blkaddr))
 			break;
 
-		if (!f2fs_is_valid_blkaddr(sbi, blkaddr, DATA_GENERIC)) {
-			ret = -EFAULT;
+		if (!f2fs_is_valid_blkaddr(sbi, blkaddr,
+					DATA_GENERIC_ENHANCE_READ)) {
+			ret = -EFSCORRUPTED;
 			goto out_put_dnode;
 		}
 		cc->nr_cpages++;
@@ -2402,9 +2408,21 @@ submit_and_realloc:
 					is_readahead ? REQ_RAHEAD : 0,
 					page->index, for_write);
 			if (IS_ERR(bio)) {
+				int j;
+
 				ret = PTR_ERR(bio);
-				f2fs_decompress_end_io(dic, ret, true);
-				f2fs_put_dnode(&dn);
+				bio = NULL;
+				/*
+				 * Earlier cpages may already be in flight.
+				 * Count the ones we never submitted as done
+				 * and let completions finish the ctx.
+				 */
+				for (j = i; j < cc->nr_cpages; j++) {
+					if (atomic_dec_and_test(&dic->remaining_pages))
+						f2fs_decompress_cluster(dic, true);
+				}
+				if (from_dnode)
+					f2fs_put_dnode(&dn);
 				*bio_ret = NULL;
 				return ret;
 			}
@@ -2741,10 +2759,7 @@ bool f2fs_should_update_outplace(struct inode *inode, struct f2fs_io_info *fio)
 		return true;
 	if (f2fs_is_atomic_file(inode))
 		return true;
-	/* rewrite low ratio compress data w/ OPU mode to avoid fragmentation */
-	if (f2fs_compressed_file(inode) &&
-		F2FS_OPTION(sbi).compress_mode == COMPR_MODE_USER &&
-		is_inode_flag_set(inode, FI_ENABLE_COMPRESS))
+	if (f2fs_compressed_file(inode))
 		return true;
 
 	/* swap file is migrating in aligned write mode */
@@ -3673,9 +3688,6 @@ static int f2fs_write_begin(struct file *file, struct address_space *mapping,
 		int ret;
 
 		*fsdata = NULL;
-
-		if (len == PAGE_SIZE && !(f2fs_is_atomic_file(inode)))
-			goto repeat;
 
 		ret = f2fs_prepare_compress_overwrite(inode, pagep,
 							index, fsdata);

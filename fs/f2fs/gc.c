@@ -63,14 +63,21 @@ static int gc_thread_func(void *data)
 
 		if (try_to_freeze()) {
 			stat_other_skip_bggc_count(sbi);
+			if (foreground)
+				wake_up_all(fggc_wq);
 			continue;
 		}
-		if (kthread_should_stop())
+		if (kthread_should_stop()) {
+			if (foreground)
+				wake_up_all(fggc_wq);
 			break;
+		}
 
 		if (sbi->sb->s_writers.frozen >= SB_FREEZE_WRITE) {
 			increase_sleep_time(gc_th, &wait_ms);
 			stat_other_skip_bggc_count(sbi);
+			if (foreground)
+				wake_up_all(fggc_wq);
 			continue;
 		}
 
@@ -80,6 +87,8 @@ static int gc_thread_func(void *data)
 
 		if (!sb_start_write_trylock(sbi->sb)) {
 			stat_other_skip_bggc_count(sbi);
+			if (foreground)
+				wake_up_all(fggc_wq);
 			continue;
 		}
 
@@ -200,9 +209,6 @@ int f2fs_start_gc_thread(struct f2fs_sb_info *sbi)
 		sbi->gc_thread = NULL;
 		return err;
 	}
-	sched_setscheduler(sbi->gc_thread->f2fs_gc_task, SCHED_IDLE, &param);
-	set_task_ioprio(sbi->gc_thread->f2fs_gc_task,
-			IOPRIO_PRIO_VALUE(IOPRIO_CLASS_IDLE, 0));
 
 	return 0;
 }
@@ -1563,21 +1569,26 @@ next_step:
 			int err;
 
 			inode = f2fs_iget(sb, dni.ino);
-			if (IS_ERR(inode) || is_bad_inode(inode) ||
+			if (IS_ERR(inode)) {
+				set_sbi_flag(sbi, SBI_NEED_FSCK);
+				continue;
+			}
+			if (is_bad_inode(inode) ||
 					special_file(inode->i_mode)) {
 				set_sbi_flag(sbi, SBI_NEED_FSCK);
+				add_gc_inode(gc_list, inode);
 				continue;
 			}
 
 			err = f2fs_gc_pinned_control(inode, gc_type, segno);
 			if (err == -EAGAIN) {
-				iput(inode);
+				add_gc_inode(gc_list, inode);
 				return submitted;
 			}
 
 			if (!f2fs_down_write_trylock(
 				&F2FS_I(inode)->i_gc_rwsem[WRITE])) {
-				iput(inode);
+				add_gc_inode(gc_list, inode);
 				sbi->skipped_gc_rwsem++;
 				continue;
 			}
@@ -1590,7 +1601,7 @@ next_step:
 
 				f2fs_up_write(&F2FS_I(inode)->i_gc_rwsem[WRITE]);
 				if (err) {
-					iput(inode);
+					add_gc_inode(gc_list, inode);
 					continue;
 				}
 				add_gc_inode(gc_list, inode);
@@ -1601,7 +1612,7 @@ next_step:
 							REQ_RAHEAD, true, NULL);
 			f2fs_up_write(&F2FS_I(inode)->i_gc_rwsem[WRITE]);
 			if (IS_ERR(data_page)) {
-				iput(inode);
+				add_gc_inode(gc_list, inode);
 				continue;
 			}
 
@@ -1887,11 +1898,12 @@ retry:
 				goto go_gc_more;
 			goto stop;
 		}
-		if (sbi->skipped_gc_rwsem)
+		if (sbi->skipped_gc_rwsem || !seg_freed)
 			skipped_round++;
 		round++;
-		if (skipped_round > MAX_SKIP_GC_COUNT &&
-				skipped_round * 2 >= round) {
+		if ((skipped_round > MAX_SKIP_GC_COUNT &&
+				skipped_round * 2 >= round) ||
+				round > MAX_SKIP_GC_COUNT * 3) {
 			ret = f2fs_write_checkpoint(sbi, &cpc);
 			goto stop;
 		}

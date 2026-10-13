@@ -1779,11 +1779,17 @@ bool f2fs_issue_discard_timeout(struct f2fs_sb_info *sbi)
 	__issue_discard_cmd(sbi, &dpolicy);
 	dropped = __drop_discard_cmd(sbi);
 
-	/* just to make sure there is no pending discard commands */
 	__wait_all_discard_cmd(sbi, NULL);
 
-	f2fs_bug_on(sbi, atomic_read(&dcc->discard_cmd_cnt));
-	return !dropped;
+	if (atomic_read(&dcc->discard_cmd_cnt)) {
+		unsigned int i;
+
+		for (i = 0; i < 10 && atomic_read(&dcc->discard_cmd_cnt); i++) {
+			io_schedule_timeout(HZ / 10);
+			__wait_all_discard_cmd(sbi, NULL);
+		}
+	}
+	return !dropped && !atomic_read(&dcc->discard_cmd_cnt);
 }
 
 static int issue_discard_thread(void *data)
@@ -2241,6 +2247,13 @@ static void destroy_discard_cmd_control(struct f2fs_sb_info *sbi)
 	 */
 	f2fs_issue_discard_timeout(sbi);
 
+	if (atomic_read(&dcc->discard_cmd_cnt)) {
+		f2fs_err(sbi, "discard cmds leftover: %d",
+			 atomic_read(&dcc->discard_cmd_cnt));
+		SM_I(sbi)->dcc_info = NULL;
+		return;
+	}
+
 	kfree(dcc);
 	SM_I(sbi)->dcc_info = NULL;
 }
@@ -2549,9 +2562,9 @@ static int is_next_segment_free(struct f2fs_sb_info *sbi,
 
 /*
  * Find a new segment from the free segments bitmap to right order
- * This function should be returned with success, otherwise BUG
+ * This function should be returned with success
  */
-static void get_new_segment(struct f2fs_sb_info *sbi,
+static bool get_new_segment(struct f2fs_sb_info *sbi,
 			unsigned int *newseg, bool new_sec, int dir)
 {
 	struct free_segmap_info *free_i = FREE_I(sbi);
@@ -2578,7 +2591,10 @@ find_other_zone:
 		if (dir == ALLOC_RIGHT) {
 			secno = find_next_zero_bit(free_i->free_secmap,
 							MAIN_SECS(sbi), 0);
-			f2fs_bug_on(sbi, secno >= MAIN_SECS(sbi));
+			if (secno >= MAIN_SECS(sbi)) {
+				spin_unlock(&free_i->segmap_lock);
+				return false;
+			}
 		} else {
 			go_left = 1;
 			left_start = hint - 1;
@@ -2594,7 +2610,10 @@ find_other_zone:
 		}
 		left_start = find_next_zero_bit(free_i->free_secmap,
 							MAIN_SECS(sbi), 0);
-		f2fs_bug_on(sbi, left_start >= MAIN_SECS(sbi));
+		if (left_start >= MAIN_SECS(sbi)) {
+			spin_unlock(&free_i->segmap_lock);
+			return false;
+		}
 		break;
 	}
 	secno = left_start;
@@ -2631,11 +2650,13 @@ skip_left:
 		goto find_other_zone;
 	}
 got_it:
-	/* set it as dirty segment in free segmap */
-	f2fs_bug_on(sbi, test_bit(segno, free_i->free_segmap));
-	__set_inuse(sbi, segno);
+	if (segno >= MAIN_SEGS(sbi) || !__set_inuse(sbi, segno)) {
+		spin_unlock(&free_i->segmap_lock);
+		return false;
+	}
 	*newseg = segno;
 	spin_unlock(&free_i->segmap_lock);
+	return true;
 }
 
 static void reset_curseg(struct f2fs_sb_info *sbi, int type, int modified)
@@ -2717,7 +2738,10 @@ static void new_curseg(struct f2fs_sb_info *sbi, int type, bool new_sec)
 		dir = ALLOC_RIGHT;
 
 	segno = __get_next_segno(sbi, type);
-	get_new_segment(sbi, &segno, new_sec, dir);
+	if (!get_new_segment(sbi, &segno, new_sec, dir)) {
+		f2fs_stop_checkpoint(sbi, false, STOP_CP_REASON_WRITE_FAIL);
+		return;
+	}
 	curseg->next_segno = segno;
 	reset_curseg(sbi, type, 1);
 	curseg->alloc_type = LFS;
@@ -4230,7 +4254,12 @@ void f2fs_flush_sit_entries(struct f2fs_sb_info *sbi, struct cp_control *cpc)
 			if (to_journal) {
 				offset = f2fs_lookup_journal_in_cursum(journal,
 							SIT_JOURNAL, segno, 1);
-				f2fs_bug_on(sbi, offset < 0);
+				if (offset < 0) {
+					f2fs_stop_checkpoint(sbi, false,
+						STOP_CP_REASON_CORRUPTED_SUMMARY);
+					up_write(&curseg->journal_rwsem);
+					goto out;
+				}
 				segno_in_journal(journal, offset) =
 							cpu_to_le32(segno);
 				seg_info_to_raw_sit(se,

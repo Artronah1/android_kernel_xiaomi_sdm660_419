@@ -18,6 +18,7 @@
 #include <linux/time.h>
 #include <linux/sysfs.h>
 #include <linux/sched/rt.h>
+#include <linux/kprofiles.h>
 
 #include <uapi/linux/sched/types.h>
 
@@ -214,8 +215,11 @@ static void do_input_boost_rem(struct work_struct *work)
 
 static void do_input_boost(struct kthread_work *work)
 {
-	unsigned int i, ret;
+	unsigned int i;
 	struct cpu_sync *i_sync_info;
+	#ifdef CONFIG_KPROFILES
+	unsigned int boost_ms = input_boost_ms;
+	#endif
 
 	cancel_delayed_work_sync(&input_boost_rem);
 	if (sched_boost_active) {
@@ -235,14 +239,41 @@ static void do_input_boost(struct kthread_work *work)
 
 	/* Enable scheduler boost to migrate tasks to big cluster */
 	if (sched_boost_on_input > 0) {
-		ret = sched_set_boost(sched_boost_on_input);
+		int ret = sched_set_boost(sched_boost_on_input);
 		if (ret)
 			pr_err("cpu-boost: sched boost enable failed\n");
 		else
 			sched_boost_active = true;
 	}
 
+	#ifdef CONFIG_KPROFILES
+	/*
+	 * Adjust boost duration based on Kprofiles mode:
+	 *   Battery (1)      - no boost (skip timer)
+	 *   Balanced (2)     - default (input_boost_ms)
+	 *   Performance (3)  - 2x default
+	 *   Disabled (0)     - default (input_boost_ms)
+	 */
+	switch (kp_active_mode()) {
+		case KP_MODE_BATTERY:
+			pr_debug("cpu-boost: battery mode, no boost\n");
+			boost_ms = 0;
+			break;
+		case KP_MODE_PERFORMANCE:
+			boost_ms = input_boost_ms * 2;
+			break;
+		case KP_MODE_BALANCED:
+		default:
+			boost_ms = input_boost_ms;
+			break;
+	}
+
+	if (boost_ms > 0)
+		schedule_delayed_work(&input_boost_rem, msecs_to_jiffies(boost_ms));
+	/* else: don't schedule - boost off */
+	#else
 	schedule_delayed_work(&input_boost_rem, msecs_to_jiffies(input_boost_ms));
+	#endif
 }
 
 static void cpuboost_input_event(struct input_handle *handle,
