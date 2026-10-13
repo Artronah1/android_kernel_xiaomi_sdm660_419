@@ -18,6 +18,8 @@
 #include "msm_drv.h"
 #include "msm_gem.h"
 #include "msm_kms.h"
+#include <linux/devfreq_boost.h>
+#include <linux/kprofiles.h>
 
 static void msm_atomic_wait_for_commit_done(struct drm_device *dev,
 		struct drm_atomic_state *old_state)
@@ -67,6 +69,28 @@ void msm_atomic_commit_tail(struct drm_atomic_state *state)
 	struct drm_device *dev = state->dev;
 	struct msm_drm_private *priv = dev->dev_private;
 	struct msm_kms *kms = priv->kms;
+
+	#ifdef CONFIG_KPROFILES
+	/*
+	 * DDR boost based on Kprofiles mode:
+	 *   Battery (1)      - no boost
+	 *   Balanced (2)     - 25ms
+	 *   Performance (3)  - 50ms
+	 *   Disabled (0)     - 25ms
+	 */
+	switch (kp_active_mode()) {
+		case KP_MODE_BATTERY:
+			/* skip boost */
+			break;
+		case KP_MODE_PERFORMANCE:
+			devfreq_boost_kick_max(DEVFREQ_MSM_CPU_DDR_BW, 50);
+			break;
+		case KP_MODE_BALANCED:
+		default:
+			devfreq_boost_kick_max(DEVFREQ_MSM_CPU_DDR_BW, 25);
+			break;
+	}
+	#endif
 
 	kms->funcs->prepare_commit(kms, state);
 
