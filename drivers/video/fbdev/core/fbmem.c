@@ -1079,14 +1079,20 @@ fb_blank(struct fb_info *info, int blank)
  	if (blank > FB_BLANK_POWERDOWN)
  		blank = FB_BLANK_POWERDOWN;
 
-#ifdef CONFIG_MACH_LONGCHEER
+	#ifdef CONFIG_MACH_LONGCHEER
 	if (info->blank == blank) {
 		if (info->fbops->fb_blank)
 			ret = info->fbops->fb_blank(blank, info);
 
+		/* Notify listeners even if blank state is unchanged */
+		event.info = info;
+		event.data = &blank;
+		if (!ret)
+			fb_notifier_call_chain(FB_EVENT_BLANK, &event);
+
 		return ret;
 	}
-#endif
+	#endif
 
 	event.info = info;
 	event.data = &blank;

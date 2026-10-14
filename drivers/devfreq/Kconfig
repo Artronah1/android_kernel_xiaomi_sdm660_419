@@ -273,10 +273,16 @@ config DEVFREQ_WAKE_BOOST_DURATION_MS
 	  Wake boost duration in milliseconds for all boostable devices.
 
 config DEVFREQ_MSM_CPU_DDR_BW_BOOST_FREQ
-	int "Boost freq for cpu-cpu-ddr-bw device"
-	default "0"
-	help
-	  Boost frequency for the MSM DDR bus.
+    int "Boost freq for cpu-cpu-ddr-bw device"
+    default "0"
+    help
+      Boost frequency for the MSM DDR bus.
+
+config DEVFREQ_MSM_GPU_BOOST_FREQ
+    int "Boost freq for GPU device"
+    default "0"
+    help
+      Boost frequency for the MSM GPU (kgsl-3d0).
 
 endif
 
