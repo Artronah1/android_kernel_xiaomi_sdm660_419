@@ -5196,7 +5196,7 @@ static int __init init_lru_gen(void)
 	BUILD_BUG_ON(BIT(LRU_GEN_WIDTH) <= MAX_NR_GENS);
 	BUILD_BUG_ON(sizeof(MM_STAT_CODES) != NR_MM_STATS + 1);
 
-	WRITE_ONCE(lru_gen_min_ttl, 2 * HZ);   // 2 секунды
+	WRITE_ONCE(lru_gen_min_ttl, HZ);   // 2 секунды
 	pr_info("lru_gen: init_lru_gen called, min_ttl=%lu ms, HZ=%d\n",
 			jiffies_to_msecs(READ_ONCE(lru_gen_min_ttl)), HZ);
 
