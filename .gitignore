@@ -172,3 +172,7 @@ build-config/anykernel3/Image.gz-dtb
 build-config/anykernel3/toolchain.txt
 out/
 DuckG-KSU-SUSFS-tulip-*.zip
+build-config/anykernel3/Image.gz-dtb
+build-config/anykernel3/toolchain.txt
+build-config/anykernel3/Image.gz-dtb
+build-config/anykernel3/toolchain.txt
