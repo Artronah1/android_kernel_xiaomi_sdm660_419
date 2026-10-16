@@ -6595,9 +6595,12 @@ kswapd_try_sleep:
 static int kshrinkd(void *pgdat)
 {
 	pg_data_t *p = pgdat;
+	struct reclaim_state reclaim_state = {
+		.reclaimed_slab = 0,
+	};
 
-	/* This is technically a kswapd thread */
-	current->flags |= PF_KSWAPD;
+	current->reclaim_state = &reclaim_state;
+	current->flags |= PF_MEMALLOC | PF_KSWAPD;
 	set_freezable();
 	while (1) {
 		unsigned int pri = DEF_PRIORITY;
@@ -6620,11 +6623,12 @@ static int kshrinkd(void *pgdat)
 			if (!atomic_long_read(&kshrinkd_waiters))
 				break;
 
-			/* Iterate down each possible priority and then wrap */
-			pri = (pri - 1) % (DEF_PRIORITY + 1);
+			/* 0-1 as unsigned is UINT_MAX % 13 == 8, not a wrap to 12. */
+			pri = pri ? pri - 1 : DEF_PRIORITY;
 		}
 	}
-	current->flags &= ~PF_KSWAPD;
+	current->flags &= ~(PF_MEMALLOC | PF_KSWAPD);
+	current->reclaim_state = NULL;
 
 	return 0;
 }
