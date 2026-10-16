@@ -3205,8 +3205,6 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	p->boost_expires		= 0;
 	p->boost_period			= 0;
 #ifdef CONFIG_SCHED_WALT
-	task_fork_bore(p);
-
 	p->low_latency			= 0;
 #endif
 	INIT_LIST_HEAD(&p->se.group_node);
@@ -3439,6 +3437,7 @@ int sched_fork(unsigned long clone_flags, struct task_struct *p)
 
 void sched_post_fork(struct task_struct *p)
 {
+	task_fork_bore(p);
 }
 
 unsigned long to_ratio(u64 period, u64 runtime)
