@@ -156,13 +156,13 @@ unsigned int normalized_sysctl_sched_wakeup_granularity     = 1000000UL;
 
 #ifdef CONFIG_SCHED_BORE
 uint __read_mostly sched_bore                   = 1;
-uint __read_mostly sched_burst_score_rounding   = 0;
+uint __read_mostly sched_burst_score_rounding   = 1;
 uint __read_mostly sched_burst_smoothness_long  = 1;
 uint __read_mostly sched_burst_smoothness_short = 0;
-uint __read_mostly sched_burst_fork_atavistic   = 2;
-uint __read_mostly sched_burst_penalty_offset   = 22;
-uint __read_mostly sched_burst_penalty_scale    = 1280;
-uint __read_mostly sched_burst_cache_lifetime   = 60000000;
+uint __read_mostly sched_burst_fork_atavistic   = 0;
+uint __read_mostly sched_burst_penalty_offset   = 16;
+uint __read_mostly sched_burst_penalty_scale    = 2048;
+uint __read_mostly sched_burst_cache_lifetime   = 120000000;
 
 #define MAX_BURST_PENALTY (39U <<2)
 
