@@ -5433,9 +5433,6 @@ static void do_sched_cfs_slack_timer(struct cfs_bandwidth *cfs_b)
 
 	raw_spin_unlock(&cfs_b->lock);
 
-#ifdef CONFIG_SCHED_BORE
-	int task_sleep = flags & DEQUEUE_SLEEP;
-#endif // CONFIG_SCHED_BORE
 	if (!runtime)
 		return;
 
@@ -5841,9 +5838,7 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	struct sched_entity *se = &p->se;
 	int task_new = !(flags & ENQUEUE_WAKEUP);
 	int idle_h_nr_running = task_has_idle_policy(p);
-	#ifdef CONFIG_SCHED_BORE
 	int task_sleep = flags & DEQUEUE_SLEEP;
-	#endif // CONFIG_SCHED_BORE
 	bool prefer_idle = sched_feat(EAS_PREFER_IDLE) ?
 	(schedtune_prefer_idle(p) > 0) : 0;
 
@@ -5884,14 +5879,11 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	if (p->in_iowait && prefer_idle)
 		cpufreq_update_util(rq, SCHED_CPUFREQ_IOWAIT);
 
-	#ifdef CONFIG_SCHED_BORE
 	if (task_sleep) {
-		cfs_rq = cfs_rq_of(se);
-		if (cfs_rq->curr == se)
-			update_curr(cfs_rq);
-		restart_burst(se);
+		if (rq->curr == p)
+			update_curr(cfs_rq_of(&p->se));
+		restart_burst_bore(p);
 	}
-	#endif // CONFIG_SCHED_BORE
 
 	for_each_sched_entity(se) {
 		if (se->on_rq)
@@ -8777,6 +8769,7 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
 	if (pick_eevdf(cfs_rq_of(se)) == pse) {
 		if (!next_buddy_marked)
 			set_next_buddy(pse);
+		restart_burst_bore(curr);
 		goto preempt;
 	}
 	return;
@@ -12730,9 +12723,7 @@ static void task_fork_fair(struct task_struct *p)
 		update_curr(cfs_rq);
 		se->vruntime = curr->vruntime;
 	}
-	#ifdef CONFIG_SCHED_BORE
-	update_burst_score(se);
-	#endif // CONFIG_SCHED_BORE
+	task_fork_bore(p);
 	place_entity(cfs_rq, se, 1);
 
 	if (sysctl_sched_child_runs_first && curr && entity_before(curr, se)) {
@@ -12894,6 +12885,7 @@ static void switched_from_fair(struct rq *rq, struct task_struct *p)
 
 static void switched_to_fair(struct rq *rq, struct task_struct *p)
 {
+	reset_task_bore(p);
 	attach_task_cfs_rq(p);
 
 	if (task_on_rq_queued(p)) {
