@@ -1237,20 +1237,10 @@ static void l2cap_sock_cleanup_listen(struct sock *parent)
 	BT_DBG("parent %p state %s", parent,
 	       state_to_string(parent->sk_state));
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-	/* Close not yet accepted channels */
-=======
-	/* Close not yet accepted channels.
-	 *
-	 * bt_accept_dequeue() returns sk with its temporary queue-walk
-	 * reference held, so a concurrent l2cap_conn_del()
-=======
 	/* Close not yet accepted channels.
 	 *
 	 * bt_accept_dequeue() now returns sk with an extra reference held
 	 * (taken while sk was still locked) so a concurrent l2cap_conn_del()
->>>>>>> 63eabb41bc2c (Bluetooth: fix UAF in l2cap_sock_cleanup_listen() vs l2cap_conn_del())
 	 * -> l2cap_sock_kill() cannot free sk under us.
 	 *
 	 * cleanup_listen() runs under the parent sk lock, so unlike
@@ -1266,16 +1256,7 @@ static void l2cap_sock_cleanup_listen(struct sock *parent)
 	 * pin it (hold_unless_zero() additionally skips a chan already past
 	 * its last reference).  We then drop the sk lock before taking
 	 * chan->lock, so sk and chan locks are never held together.
-<<<<<<< HEAD
-	 *
-	 * Since we cannot call l2cap_chan_close() without conn->lock,
-	 * schedule l2cap_chan_timeout to close the channel; it already
-	 * acquires conn->lock -> chan->lock in the correct order.
 	 */
->>>>>>> 11e073b5bde3 (Bluetooth: fix UAF in bt_accept_dequeue())
-=======
-	 */
->>>>>>> 63eabb41bc2c (Bluetooth: fix UAF in l2cap_sock_cleanup_listen() vs l2cap_conn_del())
 	while ((sk = bt_accept_dequeue(parent, NULL))) {
 		struct l2cap_chan *chan;
 

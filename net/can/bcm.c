@@ -57,11 +57,8 @@
 #include <linux/can/skb.h>
 #include <linux/can/bcm.h>
 #include <linux/slab.h>
-<<<<<<< HEAD
-=======
 #include <linux/workqueue.h>
 #include <linux/spinlock.h>
->>>>>>> a71dfc56c899 (can: bcm: defer rx_op deallocation to workqueue to fix thrtimer UAF)
 #include <net/sock.h>
 #include <net/net_namespace.h>
 

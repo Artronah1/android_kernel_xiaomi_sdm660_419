@@ -3010,8 +3010,6 @@ out:
 	return err;
 }
 
-<<<<<<< HEAD
-=======
 static bool fib6_is_reject(u32 flags, struct net_device *dev, int addr_type)
 {
 	if ((flags & RTF_REJECT) ||
@@ -3206,7 +3204,6 @@ void fib6_nh_release_dsts(struct fib6_nh *fib6_nh)
 	}
 }
 
->>>>>>> 308bac8a1bcf (UPSTREAM: ipv6: prevent possible NULL deref in fib6_nh_init())
 static struct fib6_info *ip6_route_info_create(struct fib6_config *cfg,
 					      gfp_t gfp_flags,
 					      struct netlink_ext_ack *extack)

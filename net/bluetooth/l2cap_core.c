@@ -429,13 +429,10 @@ static void l2cap_chan_timeout(struct work_struct *work)
 
 	BT_DBG("chan %p state %s", chan, state_to_string(chan->state));
 
-<<<<<<< HEAD
-	if (!conn)
-=======
 	if (!conn || test_bit(FLAG_DEL, &chan->flags)) {
 		l2cap_chan_put(chan);
->>>>>>> 52c5797cac74 (Bluetooth: L2CAP: Fix UAF in channel timeout by holding conn ref)
 		return;
+        }
 
 	mutex_lock(&conn->chan_lock);
 	/* __set_chan_timer() calls l2cap_chan_hold(chan) while scheduling
