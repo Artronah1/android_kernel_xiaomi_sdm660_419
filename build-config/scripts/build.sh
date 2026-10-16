@@ -4,13 +4,15 @@
 # Features: KernelSU-Next 12759 + SUSFS 1.5.7
 #
 # Требования:
-#   - Clang 12 (aicp-clang/clang-r416183b) в PATH или через TOOLCHAIN=
+#   - Clang (по умолчанию r584948b = Clang 22) через TOOLCHAIN= или CLANG_VERSION=
 #   - GNU coreutils, zip, make, bc, bison, flex, libssl-dev
 #
 # Использование:
-#   ./build.sh                     # собрать
-#   ./build.sh clean               # очистить out/
-#   ./build.sh menuconfig          # править конфиг
+#   ./build.sh                          # собрать (Clang 22)
+#   CLANG_VERSION=clang-r614150 ./build.sh   # собрать (Clang 23)
+#   TOOLCHAIN=/path ./build.sh          # собрать с указанным тулчейном
+#   ./build.sh clean                    # очистить out/
+#   ./build.sh menuconfig               # править конфиг
 
 set -e
 
@@ -25,27 +27,30 @@ ZIP_NAME="DuckG-KSU-SUSFS-tulip-$(date +%Y%m%d-%H%M).zip"
 ZIP_PATH="$KERNEL_DIR/$ZIP_NAME"
 
 # --- Toolchain ---
-# Дефолтный Clang 20 (AOSP r547379), если TOOLCHAIN не задан
-if [ -z "$TOOLCHAIN" ]; then
-    TOOLCHAIN="$HOME/Projects/kernels/toolchains/aosp-clang/clang-r547379"
+# Дефолт: Clang 22 (AOSP r584948b). Переопределение:
+#   CLANG_VERSION=clang-r614150 ./build.sh
+#   TOOLCHAIN=/path/to/clang ./build.sh
+TOOLCHAIN_BASE="$HOME/Projects/kernels/toolchains/aosp-clang"
+CLANG_VERSION="${CLANG_VERSION:-clang-r584948b}"
+TOOLCHAIN="${TOOLCHAIN:-$TOOLCHAIN_BASE/$CLANG_VERSION}"
+
+# Проверка, что тулчейн существует
+if [ ! -d "$TOOLCHAIN" ]; then
+    echo "ERROR: Toolchain не найден: $TOOLCHAIN"
+    echo "Доступные:"
+    ls -1 "$TOOLCHAIN_BASE" 2>/dev/null || echo "  (нет)"
+    exit 1
 fi
 
-if [ -n "$TOOLCHAIN" ]; then
-    export PATH="$TOOLCHAIN/bin:$PATH"
-fi
+export PATH="$TOOLCHAIN/bin:$PATH"
 
 if ! command -v clang >/dev/null 2>&1; then
-    echo "ERROR: clang не найден. Установите TOOLCHAIN=/path/to/clang или добавьте в PATH."
+    echo "ERROR: clang не найден в $TOOLCHAIN/bin"
     exit 1
 fi
 
 echo "=== Toolchain ==="
 echo "TOOLCHAIN=$TOOLCHAIN"
-clang --version | head -2
-which clang ld.lld
-echo ""
-
-echo "=== Toolchain ==="
 clang --version | head -2
 which clang ld.lld
 echo ""
@@ -129,8 +134,22 @@ yes "" | make -C "$KERNEL_DIR" O="$OUT_DIR" ARCH=arm64 \
     CROSS_COMPILE_ARM32=arm-linux-gnueabi- olddefconfig 2>&1 | tail -3
 
 echo ""
-echo "=== Проверка KSU/SUSFS в .config ==="
+echo "=== Проверка критичных конфигов ==="
 grep -E "CONFIG_(KSU|KSU_SUSFS|LITTLE_CPU_MASK|BIG_CPU_MASK|SECURITY_SMACK|CORESIGHT\b)" "$OUT_DIR/.config" | head -30
+echo ""
+
+echo "=== Проверка BUG / PANIC_ON_OOPS ==="
+if grep -q "^CONFIG_BUG=y" "$OUT_DIR/.config"; then
+    echo "  ✅ CONFIG_BUG=y"
+else
+    echo "  ⚠️  CONFIG_BUG=n (BUG() = no-op)"
+fi
+
+if grep -q "^CONFIG_PANIC_ON_OOPS=y" "$OUT_DIR/.config"; then
+    echo "  ⚠️  CONFIG_PANIC_ON_OOPS=y (oops → reboot)"
+else
+    echo "  ✅ CONFIG_PANIC_ON_OOPS=n (oops → log)"
+fi
 echo ""
 
 # --- 3. Сборка ---
@@ -159,6 +178,14 @@ grep -iE "KernelSU version|SUSFS_VERSION" "$KERNEL_DIR/build.log" | head
 # --- 5. AnyKernel3 + ZIP ---
 echo ""
 echo "=== 5. Упаковка ZIP ==="
+
+# Записать версию тулчейна
+cat > "$AK3_DIR/toolchain.txt" << EOF
+TOOLCHAIN=$TOOLCHAIN
+CLANG_VERSION=$(clang --version | head -1)
+BUILD_DATE=$(date)
+EOF
+
 cp "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" "$AK3_DIR/Image.gz-dtb"
 
 cd "$AK3_DIR"
