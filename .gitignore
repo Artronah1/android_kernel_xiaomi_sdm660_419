@@ -166,3 +166,9 @@ build.log
 # Baseband Guard (cloned by setup.sh, source kept in build-config/patches/bbg/)
 /Baseband-guard/
 /security/baseband-guard
+# Build artifacts
+build-*.log
+build-config/anykernel3/Image.gz-dtb
+build-config/anykernel3/toolchain.txt
+out/
+DuckG-KSU-SUSFS-tulip-*.zip
