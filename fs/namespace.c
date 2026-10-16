@@ -677,15 +677,11 @@ int __legitimize_mnt(struct vfsmount *bastard, unsigned seq)
 		return 0;
 	mnt = real_mount(bastard);
 	mnt_add_count(mnt, 1);
-	smp_mb();			// see mntput_no_expire()
+	smp_mb();		// see mntput_no_expire() and do_umount()
 	if (likely(!read_seqretry(&mount_lock, seq)))
 		return 0;
-	if (bastard->mnt_flags & MNT_SYNC_UMOUNT) {
-		mnt_add_count(mnt, -1);
-		return 1;
-	}
 	lock_mount_hash();
-	if (unlikely(bastard->mnt_flags & MNT_DOOMED)) {
+	if (unlikely(bastard->mnt_flags & (MNT_SYNC_UMOUNT | MNT_DOOMED))) {
 		mnt_add_count(mnt, -1);
 		unlock_mount_hash();
 		return 1;
@@ -1777,6 +1773,7 @@ static int do_umount(struct mount *mnt, int flags)
 			umount_tree(mnt, UMOUNT_PROPAGATE);
 		retval = 0;
 	} else {
+		smp_mb(); // paired with __legitimize_mnt()
 		shrink_submounts(mnt);
 		retval = -EBUSY;
 		if (!propagate_mount_busy(mnt, 2)) {
@@ -1852,39 +1849,6 @@ static inline bool may_mandlock(void)
 }
 #endif
 
-static int can_umount(const struct path *path, int flags)
-{
-	struct mount *mnt = real_mount(path->mnt);
-
-	if (flags & ~(MNT_FORCE | MNT_DETACH | MNT_EXPIRE | UMOUNT_NOFOLLOW))
-		return -EINVAL;
-	if (!may_mount())
-		return -EPERM;
-	if (path->dentry != path->mnt->mnt_root)
-		return -EINVAL;
-	if (!check_mnt(mnt))
-		return -EINVAL;
-	if (mnt->mnt.mnt_flags & MNT_LOCKED) /* Check optimistically */
-		return -EINVAL;
-	if (flags & MNT_FORCE && !capable(CAP_SYS_ADMIN))
-		return -EPERM;
-	return 0;
-}
-
-int path_umount(struct path *path, int flags)
-{
-	struct mount *mnt = real_mount(path->mnt);
-	int ret;
-
-	ret = can_umount(path, flags);
-	if (!ret)
-		ret = do_umount(mnt, flags);
-
-	/* we mustn't call path_put() as that would clear mnt_expiry_mark */
-	dput(path->dentry);
-	mntput_no_expire(mnt);
-	return ret;
-}
 /*
  * Now umount can handle mount points as well as block devices.
  * This is important for filesystems which use unnamed block devices.
@@ -1950,6 +1914,35 @@ SYSCALL_DEFINE1(oldumount, char __user *, name)
 }
 
 #endif
+static int can_umount(const struct path *path, int flags)
+  {
+ 	 struct mount *mnt = real_mount(path->mnt);
+ 	 if (flags & ~(MNT_FORCE | MNT_DETACH | MNT_EXPIRE | UMOUNT_NOFOLLOW))
+ 		 return -EINVAL;
+ 	 if (!may_mount())
+ 		 return -EPERM;
+ 	 if (path->dentry != path->mnt->mnt_root)
+ 		 return -EINVAL;
+ 	 if (!check_mnt(mnt))
+ 		 return -EINVAL;
+ 	 if (mnt->mnt.mnt_flags & MNT_LOCKED)
+ 		 return -EINVAL;
+ 	 if (flags & MNT_FORCE && !capable(CAP_SYS_ADMIN))
+ 		 return -EPERM;
+ 	 return 0;
+  }
+
+int path_umount(struct path *path, int flags)
+ {
+	 struct mount *mnt = real_mount(path->mnt);
+	 int ret;
+	 ret = can_umount(path, flags);
+	 if (!ret)
+		 ret = do_umount(mnt, flags);
+	 dput(path->dentry);
+	 mntput_no_expire(mnt);
+	 return ret;
+ }
 
 static bool is_mnt_ns_file(struct dentry *dentry)
 {
@@ -2431,6 +2424,10 @@ static int do_change_type(struct path *path, int ms_flags)
 		return -EINVAL;
 
 	namespace_lock();
+	if (!check_mnt(mnt)) {
+		err = -EINVAL;
+		goto out_unlock;
+	}
 	if (type == MS_SHARED) {
 		err = invent_group_ids(mnt, recurse);
 		if (err)
