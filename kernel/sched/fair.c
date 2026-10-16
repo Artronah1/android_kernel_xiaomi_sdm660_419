@@ -1028,13 +1028,18 @@ static void update_curr(struct cfs_rq *cfs_rq)
 	curr->sum_exec_runtime += delta_exec;
 	schedstat_add(cfs_rq->exec_clock, delta_exec);
 
-	#ifdef CONFIG_SCHED_BORE
+#ifdef CONFIG_SCHED_EEVDF
+	curr->vruntime += calc_delta_fair(delta_exec, curr);
+	update_deadline(cfs_rq, curr);
+#else /* !CONFIG_SCHED_EEVDF */
+#ifdef CONFIG_SCHED_BORE
 	curr->burst_time += delta_exec;
 	update_burst_penalty(curr);
 	curr->vruntime += max(1ULL, calc_delta_fair(delta_exec, curr));
-	#else // !CONFIG_SCHED_BORE
+#else /* !CONFIG_SCHED_BORE */
 	curr->vruntime += calc_delta_fair(delta_exec, curr);
-	#endif // CONFIG_SCHED_BORE
+#endif /* CONFIG_SCHED_BORE */
+#endif /* CONFIG_SCHED_EEVDF */
 	update_min_vruntime(cfs_rq);
 
 	if (entity_is_task(curr)) {
