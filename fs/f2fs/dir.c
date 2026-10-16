@@ -813,7 +813,7 @@ fail:
 }
 
 int f2fs_add_dentry(struct inode *dir, const struct f2fs_filename *fname,
-		    struct inode *inode, nid_t ino, umode_t mode)
+					struct inode *inode, nid_t ino, umode_t mode)
 {
 	int err = -EAGAIN;
 
@@ -828,7 +828,6 @@ int f2fs_add_dentry(struct inode *dir, const struct f2fs_filename *fname,
 	}
 	if (err == -EAGAIN)
 		err = f2fs_add_regular_entry(dir, fname, inode, ino, mode);
-
 	f2fs_update_time(F2FS_I_SB(dir), REQ_TIME);
 	return err;
 }
