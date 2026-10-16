@@ -406,7 +406,7 @@ static inline void seg_info_to_sit_page(struct f2fs_sb_info *sbi,
 	int i;
 
 	raw_sit = (struct f2fs_sit_block *)page_address(page);
-	memset(raw_sit, 0, PAGE_SIZE);
+	clear_page(raw_sit);
 	for (i = 0; i < end - start; i++) {
 		rs = &raw_sit->entries[i];
 		se = get_seg_entry(sbi, start + i);
@@ -454,18 +454,16 @@ static inline void __set_free(struct f2fs_sb_info *sbi, unsigned int segno)
 	spin_unlock(&free_i->segmap_lock);
 }
 
-static inline bool __set_inuse(struct f2fs_sb_info *sbi,
+static inline void __set_inuse(struct f2fs_sb_info *sbi,
 		unsigned int segno)
 {
 	struct free_segmap_info *free_i = FREE_I(sbi);
 	unsigned int secno = GET_SEC_FROM_SEG(sbi, segno);
 
-	if (test_and_set_bit(segno, free_i->free_segmap))
-		return false;
+	set_bit(segno, free_i->free_segmap);
 	free_i->free_segments--;
 	if (!test_and_set_bit(secno, free_i->free_secmap))
 		free_i->free_sections--;
-	return true;
 }
 
 static inline void __set_test_and_free(struct f2fs_sb_info *sbi,
