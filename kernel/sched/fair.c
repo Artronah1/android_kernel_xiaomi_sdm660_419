@@ -8976,28 +8976,21 @@ static void yield_task_fair(struct rq *rq)
 	/*
 	 * Are we the only task in the tree?
 	 */
-	#if !defined(CONFIG_SCHED_BORE)
-	if (unlikely(rq->nr_running == 1))
+	if (unlikely(rq->nr_running == 1)) {
+		update_rq_clock(rq);
+		update_curr(cfs_rq);
+		restart_burst_bore(curr);
 		return;
+	}
 
 	clear_buddies(cfs_rq, se);
-	#endif // CONFIG_SCHED_BORE
 
-	#ifdef CONFIG_SCHED_BORE
-	update_rq_clock(rq);
-	update_curr(cfs_rq);
-	restart_burst(se);
-	if (unlikely(rq->nr_running == 1))
-		return;
-
-	clear_buddies(cfs_rq, se);
-	#else
 	if (curr->policy != SCHED_BATCH) {
 		update_rq_clock(rq);
 		update_curr(cfs_rq);
 		rq_clock_skip_update(rq);
 	}
-	#endif // CONFIG_SCHED_BORE
+	restart_burst_bore(curr);
 
 	set_skip_buddy(se);
 }
