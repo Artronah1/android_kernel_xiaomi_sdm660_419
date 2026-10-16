@@ -71,7 +71,7 @@ extern bool susfs_is_mnt_devname_ksu(struct path *path);
 extern bool susfs_is_log_enabled __read_mostly;
 #endif
 #ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
-extern void susfs_run_try_umount_for_current_mnt_ns(void);
+	/* susfs_run_try_umount_for_current_mnt_ns removed in SUSFS 1.5.10+ */
 #endif // #ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 static bool susfs_is_umount_for_zygote_system_process_enabled = false;
@@ -636,11 +636,7 @@ int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,
 				pr_info("susfs: copy_to_user() failed\n");
 			return 0;
 		}
-		if (arg2 == CMD_SUSFS_RUN_UMOUNT_FOR_CURRENT_MNT_NS) {
-			int error = 0;
-			susfs_run_try_umount_for_current_mnt_ns();
-			pr_info("susfs: CMD_SUSFS_RUN_UMOUNT_FOR_CURRENT_MNT_NS -> ret: %d\n", error);
-		}
+		/* CMD_SUSFS_RUN_UMOUNT_FOR_CURRENT_MNT_NS removed in SUSFS 1.5.10+ */
 #endif //#ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
 #ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
 		if (arg2 == CMD_SUSFS_SET_UNAME) {
@@ -1098,9 +1094,7 @@ int ksu_handle_setuid(struct cred *new, const struct cred *old)
 	}
 #ifdef CONFIG_KSU_SUSFS
 	else {
-		task_lock(current);
-		current->susfs_task_state |= TASK_STRUCT_NON_ROOT_USER_APP_PROC;
-		task_unlock(current);
+		susfs_set_current_proc_umounted();
 	}
 #endif
 
