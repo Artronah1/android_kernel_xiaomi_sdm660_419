@@ -855,9 +855,9 @@ config LRU_GEN_STATS
 
 
 config LRU_GEN_EXEC_PROMOTE
-	bool "Promote mapped executable file pages after first usage"
-	depends on LRU_GEN
-	default y
+    bool "Promote mapped executable file pages after first usage"
+    depends on LRU_GEN
+    default n
 	help
 	  Promote mapped executable file pages (e.g. app code) after first
 	  usage to prevent MGLRU from evicting them too eagerly. Mirrors

@@ -1175,8 +1175,9 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 			goto keep_locked;
 
 		/* page_update_gen() tried to promote this page? */
-		if (lru_gen_enabled() && !skip_reference_check &&
-		    page_mapped(page) && PageReferenced(page))
+		if (lru_gen_enabled() &&
+			page_mapped(page) && PageReferenced(page) &&
+			!PageAnon(page) && !PageSwapCache(page))
 			goto keep_locked;
 
 		/* Double the slab pressure for mapped and swapcache pages */
@@ -2026,8 +2027,7 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 		if (isolated_stalls++ >= 4)
 			return 0;
 
-		congestion_wait(BLK_RW_ASYNC, msecs_to_jiffies(20));
-
+		msleep(100);
 		/* We are about to die and free our memory. Return now. */
 		if (fatal_signal_pending(current))
 			return SWAP_CLUSTER_MAX;
@@ -5196,7 +5196,9 @@ static int __init init_lru_gen(void)
 	BUILD_BUG_ON(BIT(LRU_GEN_WIDTH) <= MAX_NR_GENS);
 	BUILD_BUG_ON(sizeof(MM_STAT_CODES) != NR_MM_STATS + 1);
 
-	WRITE_ONCE(lru_gen_min_ttl, HZ);
+	WRITE_ONCE(lru_gen_min_ttl, 2 * HZ);   // 2 секунды
+	pr_info("lru_gen: init_lru_gen called, min_ttl=%lu ms, HZ=%d\n",
+			jiffies_to_msecs(READ_ONCE(lru_gen_min_ttl)), HZ);
 
 	if (sysfs_create_group(mm_kobj, &lru_gen_attr_group))
 		pr_err("lru_gen: failed to create sysfs group\n");
@@ -6370,8 +6372,7 @@ static int balance_pgdat(pg_data_t *pgdat, int order, int classzone_idx)
 		__fs_reclaim_release();
 		ret = try_to_freeze();
 		__fs_reclaim_acquire();
-		if (ret || kthread_should_stop() ||
-		    !atomic_long_read(&kswapd_waiters))
+		if (ret || kthread_should_stop())
 			break;
 
 		/*
