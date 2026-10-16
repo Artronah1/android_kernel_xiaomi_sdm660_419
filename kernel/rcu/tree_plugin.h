@@ -581,7 +581,7 @@ static void rcu_preempt_deferred_qs(struct task_struct *t)
 }
 
 /*
- * Minimal handler to give the scheduler a chance to re-evaluate.
+ * irq_work: IRQs are on again, so the deferred QS can be reported.
  */
 static void rcu_preempt_deferred_qs_handler(struct irq_work *iwp)
 {
@@ -589,6 +589,7 @@ static void rcu_preempt_deferred_qs_handler(struct irq_work *iwp)
 
 	rdp = container_of(iwp, struct rcu_data, defer_qs_iw);
 	rdp->defer_qs_iw_pending = false;
+	rcu_preempt_deferred_qs(current);
 }
 
 /*
@@ -1364,7 +1365,6 @@ int rcu_needs_cpu(u64 basemono, u64 *nextevt)
 		invoke_rcu_core();
 		return 1;
 	}
-	rdp->last_accelerate = jiffies;
 
 	/* Request timer and round. */
 	dj = round_up(rcu_idle_gp_delay + jiffies, rcu_idle_gp_delay) - jiffies;
@@ -1645,6 +1645,10 @@ static void wake_nocb_gp(struct rcu_data *rdp, bool force,
 	struct rcu_data *rdp_gp = rdp->nocb_gp_rdp;
 
 	lockdep_assert_held(&rdp->nocb_lock);
+	if (!rdp_gp) {
+		rcu_nocb_unlock_irqrestore(rdp, flags);
+		return;
+	}
 	if (!READ_ONCE(rdp_gp->nocb_gp_kthread)) {
 		trace_rcu_nocb_wake(rcu_state.name, rdp->cpu,
 				    TPS("AlreadyAwake"));
@@ -2603,6 +2607,9 @@ static void show_rcu_nocb_state(struct rcu_data *rdp)
 	bool waslocked;
 	bool wastimer;
 	bool wassleep;
+
+	if (!rdp->nocb_gp_rdp)
+		return;
 
 	if (rdp->nocb_gp_rdp == rdp)
 		show_rcu_nocb_gp_state(rdp);
