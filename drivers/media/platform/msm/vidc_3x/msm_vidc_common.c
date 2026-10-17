@@ -24,12 +24,11 @@
 #include "vidc_hfi_api.h"
 #include "vidc_hfi_helper.h"
 #include "vidc_hfi.h"
-#include "msm_vidc_debug.h"
-#include "msm_vidc_dcvs.h"
-
 #ifdef CONFIG_TRACEPOINTS
 #define CREATE_TRACE_POINTS
 #endif
+#include "msm_vidc_debug.h"
+#include "msm_vidc_dcvs.h"
 
 #define IS_ALREADY_IN_STATE(__p, __d) ({\
 	int __rc = (__p >= __d);\
