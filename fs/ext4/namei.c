@@ -1508,7 +1508,7 @@ int ext4_search_dir(struct buffer_head *bh, char *search_buf, int buf_size,
 	while ((char *) de < dlimit) {
 		/* this code is executed quadratically often */
 		/* do minimal checking `by hand' */
-		if ((char *) de + de->name_len <= dlimit &&
+        if ((char *) de + ext4_dir_rec_len(de->name_len, dir) <= dlimit &&
 		    ext4_match(dir, fname, de)) {
 			/* found a match - just to be sure, do
 			 * a full check */
