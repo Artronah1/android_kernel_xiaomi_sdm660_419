@@ -64,7 +64,7 @@ case "${1:-build}" in
         exit 0
         ;;
     menuconfig)
-        make -C "$KERNEL_DIR" O="$OUT_DIR" ARCH=arm64 \
+        make -C "$KERNEL_DIR" O="$OUT_DIR" ARCH=arm64 LLVM=1 LLVM_IAS=1 \
             CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm \
             OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
             CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- \
@@ -127,7 +127,7 @@ cat "$BUILD_CONFIG_DIR/config/tulip-perf_defconfig" \
     "$BUILD_CONFIG_DIR/config/perf-tweaks.config" > "$OUT_DIR/.config"
 
 echo "=== 2. olddefconfig ==="
-yes "" | make -C "$KERNEL_DIR" O="$OUT_DIR" ARCH=arm64 \
+yes "" | make -C "$KERNEL_DIR" O="$OUT_DIR" ARCH=arm64 LLVM=1 LLVM_IAS=1 \
     CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm \
     OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
     CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- \
@@ -155,7 +155,7 @@ echo ""
 # --- 3. Сборка ---
 echo "=== 3. Сборка ядра ==="
 rm -f "$OUT_DIR/arch/arm64/boot/Image.gz-dtb"
-make -C "$KERNEL_DIR" -j"$(nproc)" O="$OUT_DIR" ARCH=arm64 \
+make -C "$KERNEL_DIR" -j"$(nproc)" O="$OUT_DIR" ARCH=arm64 LLVM=1 LLVM_IAS=1 \
     CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm \
     OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
     CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- \
