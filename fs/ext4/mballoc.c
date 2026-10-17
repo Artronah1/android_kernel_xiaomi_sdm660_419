@@ -1095,6 +1095,12 @@ err:
  * block group lock of all groups for this page; do not hold the BG lock when
  * calling this routine!
  */
+static inline loff_t extent_logical_end(struct ext4_sb_info *sbi,
+                                        struct ext4_free_extent *ex)
+{
+    return (loff_t)ex->fe_logical << sbi->s_cluster_bits;
+}
+
 static noinline_for_stack int
 ext4_mb_load_buddy_gfp(struct super_block *sb, ext4_group_t group,
 		       struct ext4_buddy *e4b, gfp_t gfp)
