@@ -337,7 +337,6 @@ static int madvise_cold_or_pageout_pte_range(pmd_t *pmd,
 		pmd_t orig_pmd;
 		unsigned long next = pmd_addr_end(addr, end);
 
-		tlb_change_page_size(tlb, HPAGE_PMD_SIZE);
 		ptl = pmd_trans_huge_lock(pmd, vma);
 		if (!ptl)
 			return 0;
@@ -402,7 +401,6 @@ huge_unlock:
 		return 0;
 regular_page:
 #endif
-	tlb_change_page_size(tlb, PAGE_SIZE);
 	orig_pte = pte = pte_offset_map_lock(vma->vm_mm, pmd, addr, &ptl);
 	flush_tlb_batched_pending(mm);
 	arch_enter_lazy_mmu_mode();
@@ -488,9 +486,6 @@ regular_page:
 	return 0;
 }
 
-static const struct mm_walk_ops cold_walk_ops = {
-	.pmd_entry = madvise_cold_or_pageout_pte_range,
-};
 
 static void madvise_cold_page_range(struct mmu_gather *tlb,
 			     struct vm_area_struct *vma,
@@ -502,7 +497,13 @@ static void madvise_cold_page_range(struct mmu_gather *tlb,
 	};
 
 	tlb_start_vma(tlb, vma);
-	walk_page_range(vma->vm_mm, addr, end, &cold_walk_ops, &walk_private);
+	struct mm_walk walk = {
+	    .pmd_entry = madvise_cold_or_pageout_pte_range,
+	    .mm = vma->vm_mm,
+	    .vma = vma,
+	    .private = &walk_private,
+	};
+	walk_page_range(addr, end, &walk);
 	tlb_end_vma(tlb, vma);
 }
 
@@ -535,7 +536,13 @@ static void madvise_pageout_page_range(struct mmu_gather *tlb,
 	};
 
 	tlb_start_vma(tlb, vma);
-	walk_page_range(vma->vm_mm, addr, end, &cold_walk_ops, &walk_private);
+	struct mm_walk walk = {
+	    .pmd_entry = madvise_cold_or_pageout_pte_range,
+	    .mm = vma->vm_mm,
+	    .vma = vma,
+	    .private = &walk_private,
+	};
+	walk_page_range(addr, end, &walk);
 	tlb_end_vma(tlb, vma);
 }
 
