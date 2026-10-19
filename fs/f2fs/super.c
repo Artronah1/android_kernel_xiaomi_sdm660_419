@@ -2530,8 +2530,6 @@ if ((*flags & SB_RDONLY) && test_opt(sbi, DISABLE_CHECKPOINT)) {
 				goto restore_checkpoint;
 			}
 		}
-		}
-	}
 
 skip:
 #ifdef CONFIG_QUOTA
