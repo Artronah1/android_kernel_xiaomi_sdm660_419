@@ -862,7 +862,6 @@ int f2fs_recover_fsync_data(struct f2fs_sb_info *sbi, bool check_only)
 	int ret = 0;
 	unsigned long s_flags = sbi->sb->s_flags;
 	bool need_writecp = false;
-	bool fix_curseg_write_pointer = false;
 	bool new_inode = false;
 #ifdef CONFIG_QUOTA
 	int quota_enabled;
