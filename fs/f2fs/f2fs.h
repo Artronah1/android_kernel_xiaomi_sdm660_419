@@ -2233,6 +2233,7 @@ static inline void f2fs_up_write(struct f2fs_rwsem *sem)
 #ifdef CONFIG_F2FS_UNFAIR_RWSEM
 	wake_up_all(&sem->read_waiters);
 #endif
+}
 static inline void disable_nat_bits(struct f2fs_sb_info *sbi, bool lock)
 {
 	unsigned long flags;
@@ -4756,5 +4757,3 @@ static inline void f2fs_invalidate_internal_cache(struct f2fs_sb_info *sbi,
 
 #endif /* _LINUX_F2FS_H */
 
-#define EFSBADCRC	EBADMSG		/* Bad CRC detected */
-#define EFSCORRUPTED	EUCLEAN		/* Filesystem is corrupted */
