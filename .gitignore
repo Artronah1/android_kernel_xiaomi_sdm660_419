@@ -178,3 +178,10 @@ build-config/anykernel3/Image.gz-dtb
 build-config/anykernel3/toolchain.txt
 build-config/anykernel3/Image.gz-dtb
 build-config/anykernel3/toolchain.txt
+контекст-v8.md
+build-*.log
+DuckG-KSU-SUSFS-tulip-*.zip
+
+# Local kernel context (not for GitHub)
+контекст-*.md
+docs/kernel-context-*.md
