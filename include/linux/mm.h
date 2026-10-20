@@ -2954,4 +2954,12 @@ static inline void setup_nr_node_ids(void) {}
 extern int want_old_faultaround_pte;
 
 #endif /* __KERNEL__ */
+
+/* Backport from 5.1 for MGLRU pinned pages (4.19) */
+static inline bool page_maybe_dma_pinned(struct page *page)
+{
+	return page_count(page) > 1;
+}
+
 #endif /* _LINUX_MM_H */
+

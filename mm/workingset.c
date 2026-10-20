@@ -307,7 +307,7 @@ void lru_gen_refault(struct page *page, void *shadow)
 	 */
 	if (lru_gen_in_fault() || refs >= BIT(LRU_REFS_WIDTH) - 1) {
 		set_mask_bits(&page->flags, 0, LRU_REFS_MASK | BIT(PG_workingset));
-		mod_lruvec_state(lruvec, WORKINGSET_RESTORE_BASE + type, delta);
+		mod_lruvec_state(lruvec, WORKINGSET_RESTORE, delta);
 	}
 unlock:
 	rcu_read_unlock();
