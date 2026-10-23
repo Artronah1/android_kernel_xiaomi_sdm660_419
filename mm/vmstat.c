@@ -1162,6 +1162,8 @@ const char * const vmstat_text[] = {
 	"nr_anon_transparent_hugepages",
 	"nr_unstable",
 	"nr_vmscan_write",
+	"lru_kswapd_swap_full",
+	"lru_direct_swap_full",
 	"nr_vmscan_immediate_reclaim",
 	"nr_dirtied",
 	"nr_written",

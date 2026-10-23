@@ -110,6 +110,8 @@ enum vm_event_item { PGPGIN, PGPGOUT, PGPGOUTCLEAN, PSWPIN, PSWPOUT,
 		SWAP_RA,
 		SWAP_RA_HIT,
 #endif
+	LRU_KSWAPD_SWAP_FULL,	/* MGLRU: kswapd found swap full */
+	LRU_DIRECT_SWAP_FULL,	/* MGLRU: direct reclaim found swap full */
 		NR_VM_EVENT_ITEMS
 };
 
