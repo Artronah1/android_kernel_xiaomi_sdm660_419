@@ -16,7 +16,6 @@
 #include <linux/hugetlb.h>
 #include <linux/falloc.h>
 #include <linux/sched.h>
-#include <linux/sched/mm.h>
 #include <linux/ksm.h>
 #include <linux/fs.h>
 #include <linux/file.h>
@@ -26,6 +25,7 @@
 #include <linux/swapops.h>
 #include <linux/shmem_fs.h>
 #include <linux/mmu_notifier.h>
+#include <linux/sched/mm.h>
 
 #include <asm/tlb.h>
 
@@ -1024,18 +1024,6 @@ madvise_behavior_valid(int behavior)
 	}
 }
 
-static bool
-process_madvise_behavior_valid(int behavior)
-{
-	switch (behavior) {
-	case MADV_COLD:
-	case MADV_PAGEOUT:
-		return true;
-	default:
-		return false;
-	}
-}
-
 /*
  * The madvise(2) system call.
  *
@@ -1083,11 +1071,6 @@ process_madvise_behavior_valid(int behavior)
  *  MADV_DONTDUMP - the application wants to prevent pages in the given range
  *		from being included in its core dump.
  *  MADV_DODUMP - cancel MADV_DONTDUMP: no longer exclude from core dump.
- *  MADV_COLD - the application is not expected to use this memory soon,
- *		deactivate pages in this range so that they can be reclaimed
- *		easily if memory pressure hanppens.
- *  MADV_PAGEOUT - the application is not expected to use this memory soon,
- *		page out the pages in this range immediately.
  *
  * return values:
  *  zero    - success
@@ -1102,7 +1085,7 @@ process_madvise_behavior_valid(int behavior)
  *  -EBADF  - map exists, but area maps something that isn't a file.
  *  -EAGAIN - a kernel resource was temporarily unavailable.
  */
-SYSCALL_DEFINE3(madvise, unsigned long, start, size_t, len_in, int, behavior)
+static int do_madvise(struct task_struct *task, struct mm_struct *mm, unsigned long start, size_t len_in, int behavior)
 {
 	unsigned long end, tmp;
 	struct vm_area_struct *vma, *prev;
@@ -1140,10 +1123,10 @@ SYSCALL_DEFINE3(madvise, unsigned long, start, size_t, len_in, int, behavior)
 
 	write = madvise_need_mmap_write(behavior);
 	if (write) {
-		if (down_write_killable(&current->mm->mmap_sem))
+		if (down_write_killable(&mm->mmap_sem))
 			return -EINTR;
 	} else {
-		down_read(&current->mm->mmap_sem);
+		down_read(&mm->mmap_sem);
 	}
 
 	/*
@@ -1151,7 +1134,7 @@ SYSCALL_DEFINE3(madvise, unsigned long, start, size_t, len_in, int, behavior)
 	 * ranges, just ignore them, but return -ENOMEM at the end.
 	 * - different from the way of handling in mlock etc.
 	 */
-	vma = find_vma_prev(current->mm, start, &prev);
+	vma = find_vma_prev(mm, start, &prev);
 	if (vma && start > vma->vm_start)
 		prev = vma;
 
@@ -1188,14 +1171,14 @@ SYSCALL_DEFINE3(madvise, unsigned long, start, size_t, len_in, int, behavior)
 		if (prev)
 			vma = prev->vm_next;
 		else	/* madvise_remove dropped mmap_sem */
-			vma = find_vma(current->mm, start);
+			vma = find_vma(mm, start);
 	}
 out:
 	blk_finish_plug(&plug);
 	if (write)
-		up_write(&current->mm->mmap_sem);
+		up_write(&mm->mmap_sem);
 	else
-		up_read(&current->mm->mmap_sem);
+		up_read(&mm->mmap_sem);
 
 	return error;
 }
@@ -1205,48 +1188,68 @@ SYSCALL_DEFINE3(madvise, unsigned long, start, size_t, len_in, int, behavior)
 	return do_madvise(current, current->mm, start, len_in, behavior);
 }
 
-SYSCALL_DEFINE5(process_madvise, int, pidfd, unsigned long, start,
-				size_t, len_in, int, behavior, unsigned long, flags)
+static bool process_madvise_behavior_valid(int behavior)
 {
-	int ret;
-	struct fd f;
-	struct pid *pid;
+	switch (behavior) {
+		case MADV_COLD:
+		case MADV_PAGEOUT:
+			return true;
+		default:
+			return false;
+	}
+}
+
+SYSCALL_DEFINE5(process_madvise, int, pidfd, const struct iovec __user *, vec,
+				size_t, vlen, int, behavior, unsigned int, flags)
+{
+	struct iovec iovstack[UIO_FASTIOV];
+	struct iovec *iov = iovstack;
 	struct task_struct *task;
 	struct mm_struct *mm;
+	struct pid *pid;
+	struct fd f;
+	ssize_t total, done = 0, ret;
+	size_t i;
 
-	if (flags != 0)
+	if (flags || !process_madvise_behavior_valid(behavior))
+		return -EINVAL;
+	if (vlen > UIO_MAXIOV)
 		return -EINVAL;
 
-	if (!process_madvise_behavior_valid(behavior))
-		return -EINVAL;
+	total = rw_copy_check_uvector(CHECK_IOVEC_ONLY, vec, vlen,
+								  UIO_FASTIOV, iovstack, &iov);
+	if (total < 0)
+		return total;
 
 	f = fdget(pidfd);
-	if (!f.file)
-		return -EBADF;
+	if (!f.file) { ret = -EBADF; goto free_iov; }
 
 	pid = pidfd_pid(f.file);
-	if (IS_ERR(pid)) {
-		ret = PTR_ERR(pid);
-		goto fdput;
-	}
+	if (IS_ERR(pid)) { ret = PTR_ERR(pid); goto put_fd; }
 
 	task = get_pid_task(pid, PIDTYPE_PID);
-	if (!task) {
-		ret = -ESRCH;
-		goto fdput;
-	}
+	if (!task) { ret = -ESRCH; goto put_fd; }
 
-	mm = mm_access(task, PTRACE_MODE_ATTACH_FSCREDS);
+	mm = mm_access(task, PTRACE_MODE_READ_FSCREDS);
 	if (IS_ERR_OR_NULL(mm)) {
 		ret = IS_ERR(mm) ? PTR_ERR(mm) : -ESRCH;
-		goto release_task;
+		goto put_task;
 	}
+	if (!capable(CAP_SYS_NICE)) { ret = -EPERM; goto put_mm; }
 
-	ret = do_madvise(task, mm, start, len_in, behavior);
-	mmput(mm);
-	release_task:
-	put_task_struct(task);
-	fdput:
-	fdput(f);
+	ret = 0;
+	for (i = 0; i < vlen; i++) {
+		ret = do_madvise(task, mm, (unsigned long)iov[i].iov_base,
+						 iov[i].iov_len, behavior);
+		if (ret < 0)
+			break;
+		done += iov[i].iov_len;
+	}
+	ret = done ? done : ret;
+
+	put_mm:   mmput(mm);
+	put_task: put_task_struct(task);
+	put_fd:   fdput(f);
+	free_iov: if (iov != iovstack) kfree(iov);
 	return ret;
 }

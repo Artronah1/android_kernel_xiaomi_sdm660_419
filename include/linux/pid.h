@@ -196,4 +196,6 @@ pid_t pid_vnr(struct pid *pid);
 		}							\
 		task = tg___;						\
 	} while_each_pid_task(pid, type, task)
+struct file;
+	struct pid *pidfd_pid(struct file *file);
 #endif /* _LINUX_PID_H */

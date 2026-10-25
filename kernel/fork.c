@@ -1749,6 +1749,13 @@ const struct file_operations pidfd_fops = {
 #endif
 };
 
+struct pid *pidfd_pid(struct file *file)
+{
+	if (file->f_op == &pidfd_fops)
+		return file->private_data;
+	return ERR_PTR(-EBADF);
+}
+
 static void copy_oom_score_adj(u64 clone_flags, struct task_struct *tsk)
 {
 	/* Skip if kernel thread */

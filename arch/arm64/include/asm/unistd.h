@@ -49,11 +49,7 @@
 #define __ARM_NR_compat_set_tls		(__ARM_NR_COMPAT_BASE + 5)
 #define __ARM_NR_COMPAT_END		(__ARM_NR_COMPAT_BASE + 0x800)
 
-<<<<<<< HEAD
-#define __NR_compat_syscalls		435
-=======
-#define __NR_compat_syscalls		437
->>>>>>> f4ed73112f319 (mm/madvise: introduce process_madvise() syscall: an external memory hinting API)
+#define __NR_compat_syscalls 437
 #endif
 
 #define __ARCH_WANT_SYS_CLONE
