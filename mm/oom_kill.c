@@ -44,6 +44,9 @@
 #include <linux/memory_hotplug.h>
 #include <linux/show_mem_notifier.h>
 #include <linux/cred.h>
+#include <linux/syscalls.h>
+#include <linux/file.h>
+#include <linux/pid.h>
 
 #include <asm/tlb.h>
 #include "internal.h"
@@ -1174,4 +1177,74 @@ void pagefault_out_of_memory(void)
 
 	if (__ratelimit(&pfoom_rs))
 		pr_warn("Huh VM_FAULT_OOM leaked out to the #PF handler. Retrying PF\n");
+}
+
+SYSCALL_DEFINE2(process_mrelease, int, pidfd, unsigned int, flags)
+{
+	#ifdef CONFIG_MMU
+	struct mm_struct *mm = NULL;
+	struct task_struct *task;
+	struct task_struct *p;
+	struct pid *pid;
+	struct fd f;
+	bool reap = true;
+	long ret = 0;
+
+	if (flags)
+		return -EINVAL;
+
+	f = fdget(pidfd);
+	if (!f.file)
+		return -EBADF;
+
+	pid = pidfd_pid(f.file);
+	if (IS_ERR(pid)) {
+		ret = PTR_ERR(pid);
+		goto put_fd;
+	}
+
+	task = get_pid_task(pid, PIDTYPE_PID);
+	if (!task) {
+		ret = -ESRCH;
+		goto put_fd;
+	}
+
+	p = find_lock_task_mm(task);
+	if (!p) {
+		ret = -ESRCH;
+		goto put_task;
+	}
+
+	mm = p->mm;
+	mmgrab(mm);
+
+	if (test_bit(MMF_OOM_SKIP, &mm->flags))
+		reap = false;
+	else if (!task_will_free_mem(p)) {
+		reap = false;
+		ret = -EINVAL;
+	}
+	task_unlock(p);
+
+	if (!reap)
+		goto drop_mm;
+
+	if (down_read_killable(&mm->mmap_sem)) {
+		ret = -EINTR;
+		goto drop_mm;
+	}
+	if (!__oom_reap_task_mm(mm))
+		ret = -EAGAIN;
+	up_read(&mm->mmap_sem);
+
+	drop_mm:
+	mmdrop(mm);
+	put_task:
+	put_task_struct(task);
+	put_fd:
+	fdput(f);
+	return ret;
+	#else
+	return -ENOSYS;
+	#endif /* CONFIG_MMU */
 }
