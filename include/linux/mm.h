@@ -2956,10 +2956,13 @@ extern int want_old_faultaround_pte;
 #endif /* __KERNEL__ */
 
 /* Backport from 5.1 for MGLRU pinned pages (4.19) */
+#define GUP_PIN_COUNTING_BIAS (1024)
+
 static inline bool page_maybe_dma_pinned(struct page *page)
 {
-	return page_count(page) > 1;
+	if (PageHuge(page))
+		return false;
+	return page_count(page) > GUP_PIN_COUNTING_BIAS;
 }
 
 #endif /* _LINUX_MM_H */
-
