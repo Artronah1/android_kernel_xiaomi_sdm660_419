@@ -1285,13 +1285,21 @@ static int msm_routing_get_adm_topology(int fedai_id, int session_type,
 	if (topology < 0) {
 		pr_debug("%s: Check for compatible topology\n", __func__);
 		topology = msm_routing_find_topology_on_index(session_type,
-						      app_type,
-						      acdb_dev_id,
-						      ADM_TOPOLOGY_CAL_TYPE_IDX,
-						      false /*exact*/);
+													  app_type,
+												acdb_dev_id,
+												ADM_TOPOLOGY_CAL_TYPE_IDX,
+												false /*exact*/);
 		if (topology < 0)
 			topology = NULL_COPP_TOPOLOGY;
 	}
+
+	/* --- ВСТАВКА НАЧАЛО --- */
+	if (session_type == SESSION_TYPE_TX && topology == 0x1000FFF1) {
+		pr_info("%s: TX topology 0x1000FFF1 -> NULL_COPP_TOPOLOGY\n",
+				__func__);
+		topology = NULL_COPP_TOPOLOGY;
+	}
+	/* --- ВСТАВКА КОНЕЦ --- */
 
 	pr_debug("%s: Using topology %d\n", __func__, topology);
 	return topology;
