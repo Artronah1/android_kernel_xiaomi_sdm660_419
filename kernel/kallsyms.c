@@ -24,6 +24,9 @@
 #include <linux/filter.h>
 #include <linux/ftrace.h>
 #include <linux/compiler.h>
+#ifdef CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+#include <linux/susfs_def.h>
+#endif // #ifdef CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
 
 /*
  * These will be re-linked against their real values
@@ -47,7 +50,6 @@ extern const char kallsyms_token_table[] __weak;
 extern const u16 kallsyms_token_index[] __weak;
 
 extern const unsigned int kallsyms_markers[] __weak;
-extern const u8 kallsyms_seqs_of_names[] __weak;
 
 /*
  * Expand a compressed symbol data into the resulting uncompressed string,
@@ -160,144 +162,46 @@ static unsigned long kallsyms_sym_address(int idx)
 	return kallsyms_relative_base - 1 - kallsyms_offsets[idx];
 }
 
-static bool cleanup_symbol_name(char *s)
+#if defined(CONFIG_CFI_CLANG) && defined(CONFIG_THINLTO)
+/*
+ * LLVM appends a hash to static function names when ThinLTO and CFI are
+ * both enabled, which causes confusion and potentially breaks user space
+ * tools, so we will strip the postfix from expanded symbol names.
+ */
+static inline char *cleanup_symbol_name(char *s)
 {
-	char *res;
+	char *res = NULL;
 
-	if (!IS_ENABLED(CONFIG_LTO_CLANG))
-		return false;
-
-	/*
-	 * LLVM appends various suffixes for local functions and variables that
-	 * must be promoted to global scope as part of LTO.  This can break
-	 * hooking of static functions with kprobes. '.' is not a valid
-	 * character in an identifier in C. Suffixes observed:
-	 * - foo.llvm.[0-9a-f]+
-	 * - foo.[0-9a-f]+
-	 * - foo.[0-9a-f]+.cfi_jt
-	 */
-	res = strchr(s, '.');
-	if (res) {
-		*res = '\0';
-		return true;
-	}
-
-	if (!IS_ENABLED(CONFIG_CFI_CLANG) ||
-	    !IS_ENABLED(CONFIG_LTO_CLANG_THIN) ||
-	    CONFIG_CLANG_VERSION >= 130000)
-		return false;
-
-	/*
-	 * Prior to LLVM 13, the following suffixes were observed when thinLTO
-	 * and CFI are both enabled:
-	 * - foo$[0-9]+
-	 */
 	res = strrchr(s, '$');
-	if (res) {
+	if (res)
 		*res = '\0';
-		return true;
-	}
 
-	return false;
+	return res;
 }
-
-static int compare_symbol_name(const char *name, char *namebuf)
-{
-	int ret;
-
-	ret = strcmp(name, namebuf);
-	if (!ret)
-		return ret;
-
-	if (cleanup_symbol_name(namebuf) && !strcmp(name, namebuf))
-		return 0;
-
-	return ret;
-}
-
-static unsigned int get_symbol_seq(int index)
-{
-	unsigned int i, seq = 0;
-
-	for (i = 0; i < 3; i++)
-		seq = (seq << 8) | kallsyms_seqs_of_names[3 * index + i];
-
-	return seq;
-}
-
-static int kallsyms_lookup_names(const char *name,
-				 unsigned int *start,
-				 unsigned int *end)
-{
-	int ret;
-	int low, mid, high;
-	unsigned int seq, off;
-	char namebuf[KSYM_NAME_LEN];
-
-	low = 0;
-	high = kallsyms_num_syms - 1;
-
-	while (low <= high) {
-		mid = low + (high - low) / 2;
-		seq = get_symbol_seq(mid);
-		off = get_symbol_offset(seq);
-		kallsyms_expand_symbol(off, namebuf, ARRAY_SIZE(namebuf));
-		ret = compare_symbol_name(name, namebuf);
-		if (ret > 0)
-			low = mid + 1;
-		else if (ret < 0)
-			high = mid - 1;
-		else
-			break;
-	}
-
-	if (low > high)
-		return -ESRCH;
-
-	low = mid;
-	while (low) {
-		seq = get_symbol_seq(low - 1);
-		off = get_symbol_offset(seq);
-		kallsyms_expand_symbol(off, namebuf, ARRAY_SIZE(namebuf));
-		if (compare_symbol_name(name, namebuf))
-			break;
-		low--;
-	}
-	*start = low;
-
-	if (end) {
-		high = mid;
-		while (high < kallsyms_num_syms - 1) {
-			seq = get_symbol_seq(high + 1);
-			off = get_symbol_offset(seq);
-			kallsyms_expand_symbol(off, namebuf, ARRAY_SIZE(namebuf));
-			if (compare_symbol_name(name, namebuf))
-				break;
-			high++;
-		}
-		*end = high;
-	}
-
-	return 0;
-}
+#else
+static inline char *cleanup_symbol_name(char *s) { return NULL; }
+#endif
 
 /* Lookup the address for this symbol. Returns 0 if not found. */
 unsigned long kallsyms_lookup_name(const char *name)
 {
-	int ret;
-	unsigned int i;
+	char namebuf[KSYM_NAME_LEN];
+	unsigned long i;
+	unsigned int off;
 
-	/* Skip the search for empty string. */
-	if (!*name)
-		return 0;
+	for (i = 0, off = 0; i < kallsyms_num_syms; i++) {
+		off = kallsyms_expand_symbol(off, namebuf, ARRAY_SIZE(namebuf));
 
-	ret = kallsyms_lookup_names(name, &i, NULL);
-	if (!ret)
-		return kallsyms_sym_address(get_symbol_seq(i));
+		if (strcmp(namebuf, name) == 0)
+			return kallsyms_sym_address(i);
 
+		if (cleanup_symbol_name(namebuf) && strcmp(namebuf, name) == 0)
+			return kallsyms_sym_address(i);
+	}
 	return module_kallsyms_lookup_name(name);
 }
 
+#ifdef CONFIG_LIVEPATCH
 /*
  * Iterate over all symbols in vmlinux.  For symbols from modules use
  * module_kallsyms_on_each_symbol instead.
@@ -316,28 +220,10 @@ int kallsyms_on_each_symbol(int (*fn)(void *, const char *, struct module *,
 		ret = fn(data, namebuf, NULL, kallsyms_sym_address(i));
 		if (ret != 0)
 			return ret;
-		cond_resched();
 	}
 	return 0;
 }
-
-int kallsyms_on_each_match_symbol(int (*fn)(void *, unsigned long),
-				  const char *name, void *data)
-{
-	int ret;
-	unsigned int i, start, end;
-
-	ret = kallsyms_lookup_names(name, &start, &end);
-	if (ret)
-		return 0;
-
-	for (i = start; !ret && i <= end; i++) {
-		ret = fn(data, kallsyms_sym_address(get_symbol_seq(i)));
-		cond_resched();
-	}
-
-	return ret;
-}
+#endif /* CONFIG_LIVEPATCH */
 
 static unsigned long get_symbol_pos(unsigned long addr,
 				    unsigned long *symbolsize,
@@ -441,9 +327,7 @@ const char *kallsyms_lookup(unsigned long addr,
 				       namebuf, KSYM_NAME_LEN);
 		if (modname)
 			*modname = NULL;
-
-		ret = namebuf;
-		goto found;
+		return namebuf;
 	}
 
 	/* See if it's in a module or a BPF JITed image. */
@@ -456,16 +340,11 @@ const char *kallsyms_lookup(unsigned long addr,
 	if (!ret)
 		ret = ftrace_mod_address_lookup(addr, symbolsize,
 						offset, modname, namebuf);
-
-found:
-	cleanup_symbol_name(namebuf);
 	return ret;
 }
 
 int lookup_symbol_name(unsigned long addr, char *symname)
 {
-	int res;
-
 	symname[0] = '\0';
 	symname[KSYM_NAME_LEN - 1] = '\0';
 
@@ -476,23 +355,15 @@ int lookup_symbol_name(unsigned long addr, char *symname)
 		/* Grab name */
 		kallsyms_expand_symbol(get_symbol_offset(pos),
 				       symname, KSYM_NAME_LEN);
-		goto found;
+		return 0;
 	}
 	/* See if it's in a module. */
-	res = lookup_module_symbol_name(addr, symname);
-	if (res)
-		return res;
-
-found:
-	cleanup_symbol_name(symname);
-	return 0;
+	return lookup_module_symbol_name(addr, symname);
 }
 
 int lookup_symbol_attrs(unsigned long addr, unsigned long *size,
 			unsigned long *offset, char *modname, char *name)
 {
-	int res;
-
 	name[0] = '\0';
 	name[KSYM_NAME_LEN - 1] = '\0';
 
@@ -504,16 +375,10 @@ int lookup_symbol_attrs(unsigned long addr, unsigned long *size,
 		kallsyms_expand_symbol(get_symbol_offset(pos),
 				       name, KSYM_NAME_LEN);
 		modname[0] = '\0';
-		goto found;
+		return 0;
 	}
 	/* See if it's in a module. */
-	res = lookup_module_symbol_attrs(addr, size, offset, modname, name);
-	if (res)
-		return res;
-
-found:
-	cleanup_symbol_name(name);
-	return 0;
+	return lookup_module_symbol_attrs(addr, size, offset, modname, name);
 }
 
 /* Look up a kernel symbol and return it in a text buffer. */
@@ -785,7 +650,25 @@ static int s_show(struct seq_file *m, void *p)
 			   iter->type, iter->name);
 #else
 	{
-		if (strstr(iter->name, "ksu_") || !strncmp(iter->name, "susfs_", 6) || !strncmp(iter->name, "ksud", 4)) {
+		if (susfs_starts_with(iter->name, "ksu_") ||
+			susfs_starts_with(iter->name, "__ksu_") ||
+			susfs_starts_with(iter->name, "susfs_") ||
+			susfs_starts_with(iter->name, "ksud") ||
+			susfs_starts_with(iter->name, "is_ksu_") ||
+			susfs_starts_with(iter->name, "is_manager_") ||
+			susfs_starts_with(iter->name, "escape_to_") ||
+			susfs_starts_with(iter->name, "setup_selinux") ||
+			susfs_starts_with(iter->name, "track_throne") ||
+			susfs_starts_with(iter->name, "on_post_fs_data") ||
+			susfs_starts_with(iter->name, "try_umount") ||
+			susfs_starts_with(iter->name, "kernelsu") ||
+			susfs_starts_with(iter->name, "__initcall__kmod_kernelsu") ||
+			susfs_starts_with(iter->name, "apply_kernelsu") ||
+			susfs_starts_with(iter->name, "handle_sepolicy") ||
+			susfs_starts_with(iter->name, "getenforce") ||
+			susfs_starts_with(iter->name, "setenforce") ||
+			susfs_starts_with(iter->name, "is_zygote"))
+		{
 			return 0;
 		}
 		seq_printf(m, "%px %c %s\n", value,
