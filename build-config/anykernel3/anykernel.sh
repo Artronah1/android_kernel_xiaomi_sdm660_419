@@ -15,7 +15,7 @@ device.name2=twolip
 device.name3=bouquet
 device.name4=
 device.name5=
-supported.versions=33 - 36
+supported.versions=
 supported.patchlevels=
 supported.vendorpatchlevels=
 '; } # end properties
