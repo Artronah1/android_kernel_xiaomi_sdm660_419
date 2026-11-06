@@ -1,9 +1,19 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
  * Burst-Oriented Response Enhancer — CFS vruntime scoring.
- * Scoring from firelzrd BORE 6.8; applied as vruntime only on 4.19 CFS.
+ *
+ * Score core backported from firelzrd BORE 7.0.1; applied through our
+ * hand-rolled 4.19 EEVDF bridge (bore_eevdf.c).  The 6.12-only pieces of
+ * upstream 7.0.1 (protect_slice, sched_delayed, requeue_delayed_entity,
+ * base_slice) are intentionally omitted — this tree has no such machinery.
+ *
+ * Deliberately kept from the previous 6.8 port (behaviour, not bugs):
+ *   - sched_burst_penalty_scale = 1280   (upstream 7.0.1: 1536)
+ *   - sched_burst_cache_lifetime = 60ms   (upstream 7.0.1: 75ms)
+ * Both remain runtime-tunable via sysctl.
  */
 #include "sched.h"
+#include <linux/sched/task.h>
 
 #ifdef CONFIG_SCHED_BORE
 
@@ -14,8 +24,18 @@ u32 __read_mostly sched_burst_smoothness = 1;
 u32 __read_mostly sched_burst_penalty_offset = 24;
 u32 __read_mostly sched_burst_penalty_scale = 1280;
 u32 __read_mostly sched_burst_cache_lifetime = 60000000;
+u32 __read_mostly sched_credit_cap_us = 16000;
+DEFINE_STATIC_KEY_FALSE(sched_credit_key);
 
 #define BORE_MAX_PENALTY ((40U << 8) - 1)
+#define BORE_CACHE_SAMPLE 63
+#define BORE_CACHE_SCAN (BORE_CACHE_SAMPLE * 2)
+
+/*
+ * Reciprocal table for 1/n, n in [1, 63]; removes the division from the
+ * burst-inheritance averaging hot path.  lut[n] = (2^32 - 1 + n) / n.
+ */
+static u32 bore_reciprocal_lut[BORE_CACHE_SAMPLE + 1];
 
 static u32 bore_log2p1(u64 v)
 {
@@ -72,6 +92,35 @@ static void bore_set_penalty(struct task_struct *p)
 static void bore_eevdf_commit(struct task_struct *p);
 #endif
 
+/*
+ * Sleep credit (7.0.1): remember when a task went to sleep so that, on
+ * wakeup, place_entity() can pull its virtual deadline earlier by the
+ * time it slept (capped at sched_credit_cap_us).  bore_credit_ns() is
+ * one-shot: it clears the timestamp once consumed.
+ */
+void bore_note_sleep(struct task_struct *p, u64 now)
+{
+	p->bore.credit_sleep = now;
+}
+
+u64 bore_credit_ns(struct task_struct *p)
+{
+	u64 cap = (u64)sched_credit_cap_us * 1000ULL;
+	u64 slept = 0, credit = 0;
+
+	if (p->bore.credit_sleep) {
+		slept = rq_clock(task_rq(p)) - p->bore.credit_sleep;
+		if ((s64)slept > 0) {
+			p->bore.credit_sleep = 0;
+			credit = slept < cap ? slept : cap;
+		} else {
+			slept = 0;
+		}
+	}
+
+	return credit;
+}
+
 void update_curr_bore(struct task_struct *p, u64 delta_exec)
 {
 	u32 curr;
@@ -106,9 +155,6 @@ void restart_burst_bore(struct task_struct *p)
 	bore_eevdf_commit(p);
 #endif
 }
-
-#define BORE_CACHE_SAMPLE 63
-#define BORE_CACHE_SCAN (BORE_CACHE_SAMPLE * 2)
 
 u8 bore_apply_score(struct task_struct *p)
 {
@@ -152,6 +198,13 @@ static u32 count_children_upto2(struct task_struct *p)
 	return 2;
 }
 
+static u32 bore_average(u32 sum, u32 cnt)
+{
+	if (cnt <= 1)
+		return cnt ? sum : 0;
+	return (u32)(((u64)sum * bore_reciprocal_lut[cnt]) >> 32);
+}
+
 static void update_child_burst_cache(struct task_struct *p, u64 now)
 {
 	struct task_struct *child;
@@ -167,7 +220,7 @@ static void update_child_burst_cache(struct task_struct *p, u64 now)
 		if (cnt >= BORE_CACHE_SAMPLE)
 			break;
 	}
-	avg = cnt ? sum / cnt : 0;
+	avg = bore_average(sum, cnt);
 	if (avg < p->bore.penalty)
 		avg = p->bore.penalty;
 	p->bore.child_burst = avg;
@@ -210,7 +263,7 @@ static u32 inherit_from_thread_group(struct task_struct *p, u64 now)
 		if (cnt >= BORE_CACHE_SAMPLE)
 			break;
 	}
-	avg = cnt ? sum / cnt : 0;
+	avg = bore_average(sum, cnt);
 	if (avg < leader->bore.penalty)
 		avg = leader->bore.penalty;
 	leader->bore.group_burst = avg;
@@ -240,6 +293,7 @@ void task_fork_bore(struct task_struct *p)
 		p->bore.prev_penalty = inherited;
 	p->bore.curr_penalty = 0;
 	p->bore.burst_time = 0;
+	p->bore.credit_sleep = 0;
 	bore_set_penalty(p);
 #ifdef CONFIG_SCHED_EEVDF
 	bore_eevdf_commit(p);
@@ -253,18 +307,31 @@ void reset_task_bore(struct task_struct *p)
 
 void __init sched_init_bore(void)
 {
+	int i;
+
+	bore_reciprocal_lut[0] = 0;
+	for (i = 1; i <= BORE_CACHE_SAMPLE; i++)
+		bore_reciprocal_lut[i] = (u32)div64_u64(0xffffffffULL + i, i);
+
 	reset_task_bore(&init_task);
 	if (sched_bore)
 		static_branch_enable(&sched_bore_enabled);
 	else
 		static_branch_disable(&sched_bore_enabled);
-	pr_info("BORE: CFS burst scoring\n");
+	if (sched_credit_cap_us)
+		static_branch_enable(&sched_credit_key);
+	pr_info("%s %s by %s\n",
+		SCHED_BORE_PROGNAME, SCHED_BORE_VERSION, SCHED_BORE_AUTHOR);
 }
 
 #ifdef CONFIG_SYSCTL
 static int bore_zero;
 static int bore_one = 1;
 static int bore_two = 2;
+static int bore_three = 3;
+static int bore_sixthree = 63;
+static int bore_12bit = 4095;
+static int bore_million = 1000000;
 
 static int sched_bore_sysctl(struct ctl_table *table, int write,
 			     void __user *buffer, size_t *lenp, loff_t *ppos)
@@ -281,9 +348,21 @@ static int sched_bore_sysctl(struct ctl_table *table, int write,
 	return 0;
 }
 
-static int bore_three = 3;
-static int bore_sixfour = 64;
-static int bore_12bit = 4095;
+static int sched_credit_cap_us_sysctl(struct ctl_table *table, int write,
+				      void __user *buffer, size_t *lenp,
+				      loff_t *ppos)
+{
+	int ret;
+
+	ret = proc_dointvec_minmax(table, write, buffer, lenp, ppos);
+	if (ret || !write)
+		return ret;
+	if (sched_credit_cap_us)
+		static_branch_enable(&sched_credit_key);
+	else
+		static_branch_disable(&sched_credit_key);
+	return 0;
+}
 
 static struct ctl_table sched_bore_table[] = {
 	{
@@ -320,7 +399,7 @@ static struct ctl_table sched_bore_table[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec_minmax,
 		.extra1		= &bore_zero,
-		.extra2		= &bore_sixfour,
+		.extra2		= &bore_sixthree,
 	},
 	{
 		.procname	= "sched_burst_penalty_scale",
@@ -337,6 +416,15 @@ static struct ctl_table sched_bore_table[] = {
 		.maxlen		= sizeof(u32),
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec,
+	},
+	{
+		.procname	= "sched_credit_cap_us",
+		.data		= &sched_credit_cap_us,
+		.maxlen		= sizeof(u32),
+		.mode		= 0644,
+		.proc_handler	= sched_credit_cap_us_sysctl,
+		.extra1		= &bore_zero,
+		.extra2		= &bore_million,
 	},
 	{ }
 };

@@ -135,6 +135,25 @@ static void eevdf_place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
 			vslice /= 2;
 		se->deadline = se->vruntime + vslice;
 	}
+
+	/*
+	 * BORE 7.0.1 sleep credit: bore_credit_ns() is one-shot and only
+	 * returns non-zero after the task actually slept (set in
+	 * dequeue_task_fair() on DEQUEUE_SLEEP).  Convert the slept wall
+	 * time into virtual time and pull the deadline earlier so a task
+	 * that slept keeps its responsiveness.
+	 */
+	if (bore_enabled() && static_branch_unlikely(&sched_credit_key) &&
+	    entity_is_task(se)) {
+		u64 credit = bore_credit_ns(task_of(se));
+
+		if (credit) {
+			u64 vcredit = calc_delta_fair(credit, se);
+
+			if (se->deadline > vcredit)
+				se->deadline -= vcredit;
+		}
+	}
 }
 
 static void clear_buddies(struct cfs_rq *cfs_rq, struct sched_entity *se);

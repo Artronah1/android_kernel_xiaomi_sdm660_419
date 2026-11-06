@@ -5990,6 +5990,19 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 
 	util_est_dequeue(&rq->cfs, p);
 
+#ifdef CONFIG_SCHED_BORE
+	/*
+	 * BORE 7.0.1: remember when we go to sleep so that place_entity()
+	 * can hand out a sleep credit on the next wakeup.
+	 */
+	if (task_sleep && entity_is_task(se)) {
+		cfs_rq = cfs_rq_of(se);
+		if (cfs_rq->curr == se)
+			update_curr(cfs_rq);
+		bore_note_sleep(p, rq_clock(rq));
+	}
+#endif
+
 	for_each_sched_entity(se) {
 		cfs_rq = cfs_rq_of(se);
 		dequeue_entity(cfs_rq, se, flags);
