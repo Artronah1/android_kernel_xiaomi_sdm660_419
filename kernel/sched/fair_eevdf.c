@@ -90,6 +90,10 @@ static s64 entity_lag(u64 avruntime, struct sched_entity *se)
 
 	vlag = avruntime - se->vruntime;
 	limit = calc_delta_fair(max_t(u64, 2 * slice, TICK_NSEC), se);
+#ifdef CONFIG_SCHED_BORE
+	if (bore_enabled())
+		limit >>= 1;
+#endif
 
 	return clamp(vlag, -limit, limit);
 }

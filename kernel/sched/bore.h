@@ -33,7 +33,8 @@ void restart_burst_rescale_deadline_bore(struct task_struct *p);
 void task_fork_bore(struct task_struct *p);
 void bore_note_sleep(struct task_struct *p, u64 now);
 u64  bore_credit_ns(struct task_struct *p);
-u8 bore_apply_score(struct task_struct *p);
+u8  bore_apply_score(struct task_struct *p);
+u8  effective_prio_bore(struct task_struct *p);
 
 static inline bool bore_enabled(void)
 {
@@ -57,6 +58,7 @@ static inline void bore_note_sleep(struct task_struct *p, u64 now) { }
 static inline u64 bore_credit_ns(struct task_struct *p) { return 0; }
 static inline u8 bore_score(struct task_struct *p) { return 0; }
 static inline u8 bore_apply_score(struct task_struct *p) { return 0; }
+static inline u8 effective_prio_bore(struct task_struct *p) { return 0; }
 #endif
 
 #endif

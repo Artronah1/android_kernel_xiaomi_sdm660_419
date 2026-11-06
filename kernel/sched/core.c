@@ -730,7 +730,11 @@ int tg_nop(struct task_group *tg, void *data)
 
 static void set_load_weight(struct task_struct *p, bool update_load)
 {
+#ifdef CONFIG_SCHED_BORE
+	int prio = effective_prio_bore(p);
+#else
 	int prio = p->static_prio - MAX_RT_PRIO;
+#endif
 	struct load_weight *load = &p->se.load;
 
 	/*

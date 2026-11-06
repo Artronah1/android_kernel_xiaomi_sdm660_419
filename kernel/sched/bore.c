@@ -177,6 +177,25 @@ u8 bore_apply_score(struct task_struct *p)
 	return bore_score(p);
 }
 
+#define BORE_PRIO_MAX 39
+
+/*
+ * Effective (score-adjusted) nice-based priority index used as the CFS
+ * load weight selector.  Lives here rather than in bore_eevdf.c so that
+ * core.c set_load_weight() can consult it regardless of EEVDF.
+ */
+u8 effective_prio_bore(struct task_struct *p)
+{
+	int prio = p->static_prio - MAX_RT_PRIO;
+
+	prio += bore_apply_score(p);
+	if (prio < 0)
+		prio = 0;
+	if (prio > BORE_PRIO_MAX)
+		prio = BORE_PRIO_MAX;
+	return prio;
+}
+
 #ifdef CONFIG_SCHED_EEVDF
 #include "bore_eevdf.c"
 
@@ -373,6 +392,29 @@ static int bore_sixthree = 63;
 static int bore_12bit = 4095;
 static int bore_million = 1000000;
 
+/*
+ * Re-evaluate every fair task's BORE-adjusted weight, e.g. after the user
+ * toggles sched_bore.  4.19 has no scoped_guard(), so take tasklist_lock
+ * by hand; lock order tasklist_lock -> rq->lock is the standard one.
+ */
+static void readjust_all_task_weights(void)
+{
+	struct task_struct *task;
+	struct rq *rq;
+	struct rq_flags rf;
+
+	write_lock_irq(&tasklist_lock);
+	for_each_process(task) {
+		if (task->sched_class != &fair_sched_class || task->exit_state)
+			continue;
+		rq = task_rq_lock(task, &rf);
+		update_rq_clock(rq);
+		reweight_task(task, effective_prio_bore(task));
+		task_rq_unlock(rq, task, &rf);
+	}
+	write_unlock_irq(&tasklist_lock);
+}
+
 static int sched_bore_sysctl(struct ctl_table *table, int write,
 			     void __user *buffer, size_t *lenp, loff_t *ppos)
 {
@@ -385,6 +427,7 @@ static int sched_bore_sysctl(struct ctl_table *table, int write,
 		static_branch_enable(&sched_bore_enabled);
 	else
 		static_branch_disable(&sched_bore_enabled);
+	readjust_all_task_weights();
 	return 0;
 }
 
