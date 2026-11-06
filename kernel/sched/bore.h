@@ -29,6 +29,7 @@ void sched_init_bore(void);
 void reset_task_bore(struct task_struct *p);
 void update_curr_bore(struct task_struct *p, u64 delta_exec);
 void restart_burst_bore(struct task_struct *p);
+void restart_burst_rescale_deadline_bore(struct task_struct *p);
 void task_fork_bore(struct task_struct *p);
 void bore_note_sleep(struct task_struct *p, u64 now);
 u64  bore_credit_ns(struct task_struct *p);
@@ -50,6 +51,7 @@ static inline void sched_init_bore(void) { }
 static inline void reset_task_bore(struct task_struct *p) { }
 static inline void update_curr_bore(struct task_struct *p, u64 delta_exec) { }
 static inline void restart_burst_bore(struct task_struct *p) { }
+static inline void restart_burst_rescale_deadline_bore(struct task_struct *p) { }
 static inline void task_fork_bore(struct task_struct *p) { }
 static inline void bore_note_sleep(struct task_struct *p, u64 now) { }
 static inline u64 bore_credit_ns(struct task_struct *p) { return 0; }

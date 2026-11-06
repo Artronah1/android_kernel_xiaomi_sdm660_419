@@ -8992,7 +8992,7 @@ static void yield_task_fair(struct rq *rq)
 	if (unlikely(rq->nr_running == 1)) {
 		update_rq_clock(rq);
 		update_curr(cfs_rq);
-		restart_burst_bore(curr);
+		restart_burst_rescale_deadline_bore(curr);
 		return;
 	}
 
@@ -9003,7 +9003,7 @@ static void yield_task_fair(struct rq *rq)
 		update_curr(cfs_rq);
 		rq_clock_skip_update(rq);
 	}
-	restart_burst_bore(curr);
+	restart_burst_rescale_deadline_bore(curr);
 
 	set_skip_buddy(se);
 }

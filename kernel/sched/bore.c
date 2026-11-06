@@ -179,6 +179,46 @@ u8 bore_apply_score(struct task_struct *p)
 
 #ifdef CONFIG_SCHED_EEVDF
 #include "bore_eevdf.c"
+
+/*
+ * Rescale a virtual slice from old_prio to new_prio through the real
+ * weight ratio, matching upstream 7.0.1:
+ *   w = sched_prio_to_weight[prio],  inv_w = sched_prio_to_wmult[prio]
+ *   delta * w_old / 1024 * inv_w_new / 2^32
+ */
+static inline u64 rescale_slice(u64 delta, u8 old_prio, u8 new_prio)
+{
+	u64 unscaled, rescaled;
+
+	unscaled = mul_u64_u32_shr(delta, sched_prio_to_weight[old_prio], 10);
+	rescaled = mul_u64_u32_shr(unscaled, sched_prio_to_wmult[new_prio], 22);
+	return rescaled;
+}
+
+/*
+ * Recompute the burst penalty and, if the effective priority went UP
+ * (i.e. the task became less penalised), stretch the remaining virtual
+ * deadline proportionally so the task is not unfairly short-changed.
+ */
+void restart_burst_rescale_deadline_bore(struct task_struct *p)
+{
+	struct sched_entity *se = &p->se;
+	s64 vscaled, vremain = se->deadline - se->vruntime;
+	u8 old_prio = effective_prio_bore(p);
+
+	restart_burst_bore(p);
+
+	{
+		u8 new_prio = effective_prio_bore(p);
+
+		if (old_prio > new_prio) {
+			vscaled = rescale_slice(abs(vremain), old_prio, new_prio);
+			if (unlikely(vremain < 0))
+				vscaled = -vscaled;
+			se->deadline = se->vruntime + vscaled;
+		}
+	}
+}
 #endif
 
 static bool bore_inheritable(struct task_struct *p)
