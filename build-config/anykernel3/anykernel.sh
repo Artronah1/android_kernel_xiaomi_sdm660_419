@@ -4,7 +4,7 @@
 ### AnyKernel setup
 # global properties
 properties() { '
-kernel.string=DuckG + KernelSU-Next + SUSFS
+kernel.string=Artronah San Kernel + ReSukiSU + SUSFS
 do.devicecheck=1
 do.modules=0
 do.systemless=0

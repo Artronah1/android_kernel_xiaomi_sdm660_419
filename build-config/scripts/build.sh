@@ -25,7 +25,7 @@ KERNEL_DIR="$(dirname "$BUILD_CONFIG_DIR")"
 
 OUT_DIR="$KERNEL_DIR/out"
 AK3_DIR="$BUILD_CONFIG_DIR/anykernel3"
-ZIP_NAME="SanKernel-KSU-SUSFS-tulip-$(date +%Y%m%d-%H%M).zip"
+ZIP_NAME="Artronah-San-Kernel-KSU-SUSFS-tulip-$(date +%Y%m%d-%H%M).zip"
 ZIP_PATH="$KERNEL_DIR/$ZIP_NAME"
 
 # Родной defconfig этой ветки (уже содержит KSU/SUSFS/LRU_GEN/CASS).
