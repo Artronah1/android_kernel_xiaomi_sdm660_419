@@ -827,6 +827,26 @@ struct wake_q_node {
 	struct wake_q_node *next;
 };
 
+#ifdef CONFIG_SCHED_BORE
+/* 7.0.1: sleep credit — timestamp of the last dequeue-sleep, converted to
+ * virtual time and deducted from the wakeup deadline (see eevdf_place_entity).
+ */
+struct bore_ctx {
+	u64	burst_time;
+	u64	credit_sleep;
+	u16	prev_penalty;
+	u16	curr_penalty;
+	u16	penalty;
+	u16	child_burst;
+	u16	group_burst;
+	u32	child_burst_cnt;
+	u64	child_burst_cached;
+	u64	group_burst_cached;
+	u8	stop_update;
+	bool	futex_waiting;
+};
+#endif
+
 struct task_struct {
 #ifdef CONFIG_THREAD_INFO_IN_TASK
 	/*
@@ -880,6 +900,9 @@ struct task_struct {
 
 	const struct sched_class	*sched_class;
 	struct sched_entity		se;
+#ifdef CONFIG_SCHED_BORE
+	struct bore_ctx			bore;
+#endif
 	struct sched_rt_entity		rt;
 	u64				last_sleep_ts;
 

@@ -75,8 +75,8 @@ walt_dec_cfs_rq_stats(struct cfs_rq *cfs_rq, struct task_struct *p) {}
  *
  * (default: 6ms * (1 + ilog(ncpus)), units: nanoseconds)
  */
-unsigned int sysctl_sched_latency			= 6000000ULL;
-unsigned int normalized_sysctl_sched_latency		= 6000000ULL;
+unsigned int sysctl_sched_latency                    = 24000000ULL;
+static unsigned int normalized_sysctl_sched_latency  = 24000000ULL;
 
 /*
  * Enable/disable honoring sync flag in energy-aware wakeups.
@@ -99,15 +99,15 @@ const_debug unsigned int sysctl_sched_cstate_aware = 0;
  *
  * (default SCHED_TUNABLESCALING_LOG = *(1+ilog(ncpus))
  */
-enum sched_tunable_scaling sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_LOG;
+enum sched_tunable_scaling sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_NONE;
 
 /*
  * Minimal preemption granularity for CPU-bound tasks:
  *
  * (default: 0.75 msec * (1 + ilog(ncpus)), units: nanoseconds)
  */
-unsigned int sysctl_sched_min_granularity		= 750000ULL;
-unsigned int normalized_sysctl_sched_min_granularity	= 750000ULL;
+unsigned int sysctl_sched_min_granularity           = 3000000ULL;
+unsigned int normalized_sysctl_sched_min_granularity        = 3000000ULL;
 
 /*
  * This value is kept at sysctl_sched_latency/sysctl_sched_min_granularity
@@ -129,8 +129,10 @@ unsigned int sysctl_sched_child_runs_first __read_mostly;
  *
  * (default: 1 msec * (1 + ilog(ncpus)), units: nanoseconds)
  */
-unsigned int sysctl_sched_wakeup_granularity		= 1000000UL;
-unsigned int normalized_sysctl_sched_wakeup_granularity	= 1000000UL;
+unsigned int sysctl_sched_wakeup_granularity                = 4000000UL;
+unsigned int normalized_sysctl_sched_wakeup_granularity     = 4000000UL;
+
+/* BORE implementation moved to bore.c */
 
 const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
 DEFINE_PER_CPU_READ_MOSTLY(int, sched_load_boost);
@@ -765,6 +767,19 @@ static inline u64 calc_delta_fair(u64 delta, struct sched_entity *se)
 	return delta;
 }
 
+static inline u64 calc_delta_fair_bore(u64 delta, struct sched_entity *se)
+{
+	u8 score;
+
+	delta = calc_delta_fair(delta, se);
+	if (!entity_is_task(se))
+		return delta;
+	score = bore_apply_score(task_of(se));
+	if (score)
+		delta = mul_u64_u32_shr(delta, sched_prio_to_wmult[score], 22);
+	return delta;
+}
+
 /*
  * The idea is to set a period in which each task runs once.
  *
@@ -967,19 +982,14 @@ static void update_curr(struct cfs_rq *cfs_rq)
 	curr->vruntime += calc_delta_fair(delta_exec, curr);
 	update_deadline(cfs_rq, curr);
 #else /* !CONFIG_SCHED_EEVDF */
-#ifdef CONFIG_SCHED_BORE
-	curr->burst_time += delta_exec;
-	update_burst_penalty(curr);
-	curr->vruntime += max(1ULL, calc_delta_fair(delta_exec, curr));
-#else /* !CONFIG_SCHED_BORE */
-	curr->vruntime += calc_delta_fair(delta_exec, curr);
-#endif /* CONFIG_SCHED_BORE */
+	curr->vruntime += calc_delta_fair_bore(delta_exec, curr);
 #endif /* CONFIG_SCHED_EEVDF */
 	update_min_vruntime(cfs_rq);
 
 	if (entity_is_task(curr)) {
 		struct task_struct *curtask = task_of(curr);
 
+		update_curr_bore(curtask, delta_exec);
 		trace_sched_stat_runtime(curtask, delta_exec, curr->vruntime);
 		cgroup_account_cputime(curtask, delta_exec);
 		account_group_exec_runtime(curtask, delta_exec);
@@ -5822,10 +5832,11 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 {
 	struct cfs_rq *cfs_rq;
 	struct sched_entity *se = &p->se;
-        int idle_h_nr_running = task_has_idle_policy(p);
+	int task_new = !(flags & ENQUEUE_WAKEUP);
+	int idle_h_nr_running = task_has_idle_policy(p);
+	int task_sleep = flags & DEQUEUE_SLEEP;
 	bool prefer_idle = sched_feat(EAS_PREFER_IDLE) ?
 				(schedtune_prefer_idle(p) > 0) : 0;
-	int task_new = !(flags & ENQUEUE_WAKEUP);
 
 
 	/*
@@ -5864,6 +5875,12 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	 */
 	if (p->in_iowait && prefer_idle)
 		cpufreq_update_util(rq, SCHED_CPUFREQ_IOWAIT);
+
+	if (task_sleep) {
+		if (rq->curr == p)
+			update_curr(cfs_rq_of(&p->se));
+		restart_burst_bore(p);
+	}
 
 	for_each_sched_entity(se) {
 		if (se->on_rq)
@@ -5969,6 +5986,19 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	schedtune_dequeue_task(p, cpu_of(rq));
 
 	util_est_dequeue(&rq->cfs, p);
+
+#ifdef CONFIG_SCHED_BORE
+	/*
+	 * BORE 7.0.1: remember when we go to sleep so that place_entity()
+	 * can hand out a sleep credit on the next wakeup.
+	 */
+	if (task_sleep && entity_is_task(se)) {
+		cfs_rq = cfs_rq_of(se);
+		if (cfs_rq->curr == se)
+			update_curr(cfs_rq);
+		bore_note_sleep(p, rq_clock(rq));
+	}
+#endif
 
 	for_each_sched_entity(se) {
 		cfs_rq = cfs_rq_of(se);
@@ -8749,6 +8779,7 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
 	if (pick_eevdf(cfs_rq_of(se)) == pse) {
 		if (!next_buddy_marked)
 			set_next_buddy(pse);
+		restart_burst_bore(curr);
 		goto preempt;
 	}
 	return;
@@ -8955,8 +8986,12 @@ static void yield_task_fair(struct rq *rq)
 	/*
 	 * Are we the only task in the tree?
 	 */
-	if (unlikely(rq->nr_running == 1))
+	if (unlikely(rq->nr_running == 1)) {
+		update_rq_clock(rq);
+		update_curr(cfs_rq);
+		restart_burst_rescale_deadline_bore(curr);
 		return;
+	}
 
 	clear_buddies(cfs_rq, se);
 
@@ -8973,6 +9008,7 @@ static void yield_task_fair(struct rq *rq)
 		 */
 		rq_clock_skip_update(rq);
 	}
+	restart_burst_rescale_deadline_bore(curr);
 
 	set_skip_buddy(se);
 }
@@ -12698,6 +12734,7 @@ static void task_fork_fair(struct task_struct *p)
 		update_curr(cfs_rq);
 		se->vruntime = curr->vruntime;
 	}
+	task_fork_bore(p);
 	place_entity(cfs_rq, se, 1);
 
 	if (sysctl_sched_child_runs_first && curr && entity_before(curr, se)) {
@@ -12859,6 +12896,7 @@ static void switched_from_fair(struct rq *rq, struct task_struct *p)
 
 static void switched_to_fair(struct rq *rq, struct task_struct *p)
 {
+	reset_task_bore(p);
 	attach_task_cfs_rq(p);
 
 	if (task_on_rq_queued(p)) {

@@ -90,6 +90,10 @@ static s64 entity_lag(u64 avruntime, struct sched_entity *se)
 
 	vlag = avruntime - se->vruntime;
 	limit = calc_delta_fair(max_t(u64, 2 * slice, TICK_NSEC), se);
+#ifdef CONFIG_SCHED_BORE
+	if (bore_enabled())
+		limit >>= 1;
+#endif
 
 	return clamp(vlag, -limit, limit);
 }
@@ -134,6 +138,25 @@ static void eevdf_place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
 		if (sched_feat(PLACE_DEADLINE_INITIAL) && initial)
 			vslice /= 2;
 		se->deadline = se->vruntime + vslice;
+	}
+
+	/*
+	 * BORE 7.0.1 sleep credit: bore_credit_ns() is one-shot and only
+	 * returns non-zero after the task actually slept (set in
+	 * dequeue_task_fair() on DEQUEUE_SLEEP).  Convert the slept wall
+	 * time into virtual time and pull the deadline earlier so a task
+	 * that slept keeps its responsiveness.
+	 */
+	if (bore_enabled() && static_branch_unlikely(&sched_credit_key) &&
+	    entity_is_task(se)) {
+		u64 credit = bore_credit_ns(task_of(se));
+
+		if (credit) {
+			u64 vcredit = calc_delta_fair(credit, se);
+
+			if (se->deadline > vcredit)
+				se->deadline -= vcredit;
+		}
 	}
 }
 
@@ -289,4 +312,16 @@ static void reweight_eevdf(struct sched_entity *se, u64 avruntime,
 	vslice = (s64)(se->deadline - avruntime);
 	vslice = div_s64(vslice * old_weight, weight);
 	se->deadline = avruntime + vslice;
+}
+
+void sched_eevdf_apply_slice(struct sched_entity *se, u64 slice)
+{
+	u64 vslice;
+
+	if (!slice)
+		slice = sysctl_sched_min_granularity;
+	se->slice = slice;
+	vslice = calc_delta_fair(slice, se);
+	if ((s64)(se->deadline - se->vruntime) > (s64)vslice)
+		se->deadline = se->vruntime + vslice;
 }

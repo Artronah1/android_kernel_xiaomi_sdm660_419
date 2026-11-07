@@ -730,7 +730,11 @@ int tg_nop(struct task_group *tg, void *data)
 
 static void set_load_weight(struct task_struct *p, bool update_load)
 {
+#ifdef CONFIG_SCHED_BORE
+	int prio = effective_prio_bore(p);
+#else
 	int prio = p->static_prio - MAX_RT_PRIO;
+#endif
 	struct load_weight *load = &p->se.load;
 
 	/*
@@ -3181,6 +3185,8 @@ int wake_up_state(struct task_struct *p, unsigned int state)
 	return try_to_wake_up(p, state, 0, 1);
 }
 
+/* BORE init/fork moved to bore.c */
+
 /*
  * Perform scheduler related setup for a newly forked process p.
  * p is forked by current.
@@ -3429,6 +3435,11 @@ int sched_fork(unsigned long clone_flags, struct task_struct *p)
 	RB_CLEAR_NODE(&p->pushable_dl_tasks);
 #endif
 	return 0;
+}
+
+void sched_post_fork(struct task_struct *p)
+{
+	task_fork_bore(p);
 }
 
 u64 to_ratio(u64 period, u64 runtime)
@@ -7301,6 +7312,7 @@ static void cpuset_cpu_active(void)
 		if (--num_cpus_frozen)
 			return;
 		/*
+	sched_init_bore();
 		 * This is the last CPU online operation. So fall through and
 		 * restore the original sched domains by considering the
 		 * cpuset configurations.
