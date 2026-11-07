@@ -149,8 +149,9 @@ TRACE_DEFINE_ENUM(EX_BLOCK_AGE);
 		{ CP_NODE_NEED_CP,	"node needs cp" },		\
 		{ CP_FASTBOOT_MODE,	"fastboot mode" },		\
 		{ CP_SPEC_LOG_NUM,	"log type is 2" },		\
-		{ CP_RECOVER_DIR,	"dir needs recovery" },		\
-		{ CP_XATTR_DIR,		"dir's xattr updated" })
+		{ CP_RECOVER_DIR,	"dir needs recovery" })
+		/* CP_XATTR_DIR dropped: this f2fs enum (fs/f2fs/f2fs.h) ends at
+		 * CP_RECOVER_DIR, so the member does not exist on this base. */
 
 #define show_shutdown_mode(type)					\
 	__print_symbolic(type,						\
