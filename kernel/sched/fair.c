@@ -589,12 +589,18 @@ static inline int entity_before(struct sched_entity *a,
 	return (s64)(a->vruntime - b->vruntime) < 0;
 }
 
+#ifdef CONFIG_SCHED_EEVDF
+static inline u64 calc_delta_fair(u64 delta, struct sched_entity *se);
+#include "fair_eevdf.c"
+#endif
+
 static void update_min_vruntime(struct cfs_rq *cfs_rq)
 {
 	struct sched_entity *curr = cfs_rq->curr;
-	struct rb_node *leftmost = rb_first_cached(&cfs_rq->tasks_timeline);
-
 	u64 vruntime = cfs_rq->min_vruntime;
+#ifndef CONFIG_SCHED_EEVDF
+	struct rb_node *leftmost = rb_first_cached(&cfs_rq->tasks_timeline);
+#endif
 
 	if (curr) {
 		if (curr->on_rq)
@@ -603,6 +609,18 @@ static void update_min_vruntime(struct cfs_rq *cfs_rq)
 			curr = NULL;
 	}
 
+#ifdef CONFIG_SCHED_EEVDF
+	{
+		struct sched_entity *se = __pick_root_entity(cfs_rq);
+
+		if (se) {
+			if (!curr)
+				vruntime = se->min_vruntime;
+			else
+				vruntime = min_vruntime(vruntime, se->min_vruntime);
+		}
+	}
+#else
 	if (leftmost) { /* non-empty tree */
 		struct sched_entity *se;
 		se = rb_entry(leftmost, struct sched_entity, run_node);
@@ -612,8 +630,17 @@ static void update_min_vruntime(struct cfs_rq *cfs_rq)
 		else
 			vruntime = min_vruntime(vruntime, se->vruntime);
 	}
+#endif
 
 	/* ensure we never gain time by being placed backwards. */
+#ifdef CONFIG_SCHED_EEVDF
+	{
+		s64 delta = (s64)(vruntime - cfs_rq->min_vruntime);
+
+		if (delta > 0)
+			avg_vruntime_update(cfs_rq, delta);
+	}
+#endif
 	cfs_rq->min_vruntime = max_vruntime(cfs_rq->min_vruntime, vruntime);
 #ifndef CONFIG_64BIT
 	smp_wmb();
@@ -626,6 +653,9 @@ static void update_min_vruntime(struct cfs_rq *cfs_rq)
  */
 static void __enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
+#ifdef CONFIG_SCHED_EEVDF
+	eevdf_enqueue_entity(cfs_rq, se);
+#else
 	struct rb_node **link = &cfs_rq->tasks_timeline.rb_root.rb_node;
 	struct rb_node *parent = NULL;
 	struct sched_entity *entry;
@@ -652,10 +682,15 @@ static void __enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	rb_link_node(&se->run_node, parent, link);
 	rb_insert_color_cached(&se->run_node,
 			       &cfs_rq->tasks_timeline, leftmost);
+#endif
 }
 
 static void __dequeue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
+#ifdef CONFIG_SCHED_EEVDF
+	eevdf_dequeue_entity(cfs_rq, se);
+	return;
+#endif
 	rb_erase_cached(&se->run_node, &cfs_rq->tasks_timeline);
 }
 
@@ -669,6 +704,7 @@ struct sched_entity *__pick_first_entity(struct cfs_rq *cfs_rq)
 	return rb_entry(left, struct sched_entity, run_node);
 }
 
+#ifndef CONFIG_SCHED_EEVDF
 static struct sched_entity *__pick_next_entity(struct sched_entity *se)
 {
 	struct rb_node *next = rb_next(&se->run_node);
@@ -678,6 +714,7 @@ static struct sched_entity *__pick_next_entity(struct sched_entity *se)
 
 	return rb_entry(next, struct sched_entity, run_node);
 }
+#endif
 
 #ifdef CONFIG_SCHED_DEBUG
 struct sched_entity *__pick_last_entity(struct cfs_rq *cfs_rq)
@@ -787,10 +824,12 @@ static u64 sched_slice(struct cfs_rq *cfs_rq, struct sched_entity *se)
  *
  * vs = s/w
  */
+#ifndef CONFIG_SCHED_EEVDF
 static u64 sched_vslice(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
 	return calc_delta_fair(sched_slice(cfs_rq, se), se);
 }
+#endif
 
 #include "pelt.h"
 #ifdef CONFIG_SMP
@@ -924,7 +963,18 @@ static void update_curr(struct cfs_rq *cfs_rq)
 	curr->sum_exec_runtime += delta_exec;
 	schedstat_add(cfs_rq->exec_clock, delta_exec);
 
+#ifdef CONFIG_SCHED_EEVDF
 	curr->vruntime += calc_delta_fair(delta_exec, curr);
+	update_deadline(cfs_rq, curr);
+#else /* !CONFIG_SCHED_EEVDF */
+#ifdef CONFIG_SCHED_BORE
+	curr->burst_time += delta_exec;
+	update_burst_penalty(curr);
+	curr->vruntime += max(1ULL, calc_delta_fair(delta_exec, curr));
+#else /* !CONFIG_SCHED_BORE */
+	curr->vruntime += calc_delta_fair(delta_exec, curr);
+#endif /* CONFIG_SCHED_BORE */
+#endif /* CONFIG_SCHED_EEVDF */
 	update_min_vruntime(cfs_rq);
 
 	if (entity_is_task(curr)) {
@@ -2984,8 +3034,21 @@ static void reweight_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
 		/* commit outstanding execution time */
 		if (cfs_rq->curr == se)
 			update_curr(cfs_rq);
+#ifdef CONFIG_SCHED_EEVDF
+		{
+			u64 avruntime = avg_vruntime(cfs_rq);
+
+			if (cfs_rq->curr != se)
+				__dequeue_entity(cfs_rq, se);
+			reweight_eevdf(se, avruntime, weight);
+		}
+#endif
 		account_entity_dequeue(cfs_rq, se);
 		dequeue_runnable_load_avg(cfs_rq, se);
+#ifdef CONFIG_SCHED_EEVDF
+	} else if (weight) {
+		se->vlag = div_s64(se->vlag * se->load.weight, weight);
+#endif
 	}
 	dequeue_load_avg(cfs_rq, se);
 
@@ -3006,6 +3069,10 @@ static void reweight_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
 	if (se->on_rq) {
 		account_entity_enqueue(cfs_rq, se);
 		enqueue_runnable_load_avg(cfs_rq, se);
+#ifdef CONFIG_SCHED_EEVDF
+		if (cfs_rq->curr != se)
+			__enqueue_entity(cfs_rq, se);
+#endif
 	}
 }
 
@@ -4336,6 +4403,9 @@ static inline bool entity_is_long_sleeper(struct sched_entity *se)
 static void
 place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int initial)
 {
+#ifdef CONFIG_SCHED_EEVDF
+	eevdf_place_entity(cfs_rq, se, initial);
+#else
 	u64 vruntime = cfs_rq->min_vruntime;
 
 	/*
@@ -4397,6 +4467,7 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int initial)
 		se->vruntime = vruntime;
 	else
 		se->vruntime = max_vruntime(se->vruntime, vruntime);
+#endif
 }
 
 static void check_enqueue_throttle(struct cfs_rq *cfs_rq);
@@ -4578,6 +4649,9 @@ dequeue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 
 	clear_buddies(cfs_rq, se);
 
+#ifdef CONFIG_SCHED_EEVDF
+	update_entity_lag(cfs_rq, se);
+#endif
 	if (se != cfs_rq->curr)
 		__dequeue_entity(cfs_rq, se);
 	se->on_rq = 0;
@@ -4610,6 +4684,7 @@ dequeue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 /*
  * Preempt the current task with a newly woken task if needed:
  */
+#ifndef CONFIG_SCHED_EEVDF
 static void
 check_preempt_tick(struct cfs_rq *cfs_rq, struct sched_entity *curr)
 {
@@ -4652,6 +4727,7 @@ check_preempt_tick(struct cfs_rq *cfs_rq, struct sched_entity *curr)
 	if (delta > ideal_runtime)
 		resched_curr(rq_of(cfs_rq));
 }
+#endif /* CONFIG_SCHED_EEVDF */
 
 static void
 set_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
@@ -4666,6 +4742,9 @@ set_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
 		update_stats_wait_end(cfs_rq, se);
 		__dequeue_entity(cfs_rq, se);
 		update_load_avg(cfs_rq, se, UPDATE_TG);
+#ifdef CONFIG_SCHED_EEVDF
+		se->vlag = se->deadline;
+#endif
 	}
 
 	update_stats_curr_start(cfs_rq, se);
@@ -4698,6 +4777,9 @@ wakeup_preempt_entity(struct sched_entity *curr, struct sched_entity *se);
 static struct sched_entity *
 pick_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *curr)
 {
+#ifdef CONFIG_SCHED_EEVDF
+	return pick_eevdf(cfs_rq);
+#else
 	struct sched_entity *left = __pick_first_entity(cfs_rq);
 	struct sched_entity *se;
 
@@ -4744,6 +4826,7 @@ pick_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *curr)
 	clear_buddies(cfs_rq, se);
 
 	return se;
+#endif
 }
 
 static bool check_cfs_rq_runtime(struct cfs_rq *cfs_rq);
@@ -4803,8 +4886,10 @@ entity_tick(struct cfs_rq *cfs_rq, struct sched_entity *curr, int queued)
 		return;
 #endif
 
+#ifndef CONFIG_SCHED_EEVDF
 	if (cfs_rq->nr_running > 1)
 		check_preempt_tick(cfs_rq, curr);
+#endif
 }
 
 
@@ -8660,6 +8745,14 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
 	find_matching_se(&se, &pse);
 	update_curr(cfs_rq_of(se));
 	BUG_ON(!pse);
+#ifdef CONFIG_SCHED_EEVDF
+	if (pick_eevdf(cfs_rq_of(se)) == pse) {
+		if (!next_buddy_marked)
+			set_next_buddy(pse);
+		goto preempt;
+	}
+	return;
+#endif
 	if (wakeup_preempt_entity(se, pse) == 1) {
 		/*
 		 * Bias pick_next to pick the sched entity that is
@@ -12813,6 +12906,10 @@ void init_cfs_rq(struct cfs_rq *cfs_rq)
 {
 	cfs_rq->tasks_timeline = RB_ROOT_CACHED;
 	cfs_rq->min_vruntime = (u64)(-(1LL << 20));
+#ifdef CONFIG_SCHED_EEVDF
+	cfs_rq->avg_vruntime = 0;
+	cfs_rq->avg_load = 0;
+#endif
 #ifndef CONFIG_64BIT
 	cfs_rq->min_vruntime_copy = cfs_rq->min_vruntime;
 #endif
