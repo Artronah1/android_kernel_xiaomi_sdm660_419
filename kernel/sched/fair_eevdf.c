@@ -122,10 +122,19 @@ static void eevdf_place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
 		if (curr && curr->on_rq)
 			load += scale_load_down(curr->load.weight);
 
-		lag *= load + scale_load_down(se->load.weight);
-		if (WARN_ON_ONCE(!load))
-			load = 1;
-		lag = div_s64(lag, load);
+		/*
+		 * nr_running already counts @se here (our enqueue_entity calls
+		 * account_entity_enqueue() before place_entity()), so a lone
+		 * waker leaves avg_load == 0 and curr off-rq.  Upstream skips
+		 * the whole block in that case; guard on load to get the same
+		 * lag == 0 without tripping the WARN.
+		 */
+		if (load) {
+			lag *= load + scale_load_down(se->load.weight);
+			lag = div_s64(lag, load);
+		} else {
+			lag = 0;
+		}
 	}
 
 	se->vruntime = vruntime - lag;
