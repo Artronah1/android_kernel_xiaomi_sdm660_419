@@ -1176,8 +1176,9 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 			goto keep_locked;
 
 		/* page_update_gen() tried to promote this page? */
-		if (lru_gen_enabled() && !&node_reclaim &&
-		    page_mapped(page) && PageReferenced(page))
+		if (lru_gen_enabled() &&
+		    page_mapped(page) && PageReferenced(page) &&
+		    !PageAnon(page) && !PageSwapCache(page))
 			goto keep_locked;
 
 		/* Double the slab pressure for mapped and swapcache pages */
@@ -2706,8 +2707,11 @@ static int get_swappiness(struct lruvec *lruvec, struct scan_control *sc)
 {
 	struct mem_cgroup *memcg = lruvec_memcg(lruvec);
 
-	if (mem_cgroup_get_nr_swap_pages(memcg) <= 0)
- 		return 0;
+	if (mem_cgroup_get_nr_swap_pages(memcg) < MIN_LRU_BATCH) {
+		count_vm_event(current_is_kswapd() ? LRU_KSWAPD_SWAP_FULL:
+						     LRU_DIRECT_SWAP_FULL);
+		return 0;
+	}
 
 	return mem_cgroup_swappiness(memcg);
 }
@@ -5248,6 +5252,11 @@ static int __init init_lru_gen(void)
 	BUILD_BUG_ON(BIT(LRU_GEN_WIDTH) <= MAX_NR_GENS);
 	BUILD_BUG_ON(sizeof(MM_STAT_CODES) != NR_MM_STATS + 1);
 
+	/* Give freshly faulted pages at least TTL before they can be evicted. */
+	WRITE_ONCE(lru_gen_min_ttl, HZ);
+	pr_info("lru_gen: min_ttl=%lu ms, HZ=%d\n",
+			jiffies_to_msecs(READ_ONCE(lru_gen_min_ttl)), HZ);
+
 	if (sysfs_create_group(mm_kobj, &lru_gen_attr_group))
 		pr_err("lru_gen: failed to create sysfs group\n");
 
@@ -5629,7 +5638,7 @@ static bool shrink_node(pg_data_t *pgdat, struct scan_control *sc)
 			 * faster than they are written so also forcibly stall.
 			 */
 			if (sc->nr.immediate)
-				congestion_wait(BLK_RW_ASYNC, HZ/10);
+				congestion_wait(BLK_RW_ASYNC, msecs_to_jiffies(20));
 		}
 
 		/*
@@ -5648,7 +5657,7 @@ static bool shrink_node(pg_data_t *pgdat, struct scan_control *sc)
 		 */
 		if (!sc->hibernation_mode && !current_is_kswapd() &&
 		   current_may_throttle() && pgdat_memcg_congested(pgdat, root))
-			wait_iff_congested(BLK_RW_ASYNC, HZ/10);
+			wait_iff_congested(BLK_RW_ASYNC, msecs_to_jiffies(20));
 
 	} while (should_continue_reclaim(pgdat, sc->nr_reclaimed - nr_reclaimed,
 					 sc->nr_scanned - nr_scanned, sc));
@@ -6420,8 +6429,7 @@ static int balance_pgdat(pg_data_t *pgdat, int order, int classzone_idx)
 		__fs_reclaim_release();
 		ret = try_to_freeze();
 		__fs_reclaim_acquire();
-		if (ret || kthread_should_stop() ||
-		    !atomic_long_read(&kswapd_waiters))
+		if (ret || kthread_should_stop())
 			break;
 
 		/*
@@ -6644,9 +6652,12 @@ kswapd_try_sleep:
 static int kshrinkd(void *pgdat)
 {
 	pg_data_t *p = pgdat;
+	struct reclaim_state reclaim_state = {
+		.reclaimed_slab = 0,
+	};
 
-	/* This is technically a kswapd thread */
-	current->flags |= PF_KSWAPD;
+	current->reclaim_state = &reclaim_state;
+	current->flags |= PF_MEMALLOC | PF_KSWAPD;
 	set_freezable();
 	while (1) {
 		unsigned int pri = DEF_PRIORITY;
@@ -6669,11 +6680,12 @@ static int kshrinkd(void *pgdat)
 			if (!atomic_long_read(&kshrinkd_waiters))
 				break;
 
-			/* Iterate down each possible priority and then wrap */
-			pri = (pri - 1) % (DEF_PRIORITY + 1);
+			/* 0-1 as unsigned is UINT_MAX % 13 == 8, not a wrap to 12. */
+			pri = pri ? pri - 1 : DEF_PRIORITY;
 		}
 	}
-	current->flags &= ~PF_KSWAPD;
+	current->flags &= ~(PF_MEMALLOC | PF_KSWAPD);
+	current->reclaim_state = NULL;
 
 	return 0;
 }
