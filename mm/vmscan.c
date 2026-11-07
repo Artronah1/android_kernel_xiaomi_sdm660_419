@@ -4159,7 +4159,8 @@ void lru_gen_look_around(struct page_vma_mapped_walk *pvmw)
  *                          the eviction
  ******************************************************************************/
 
-static bool sort_page(struct lruvec *lruvec, struct page *page, int tier_idx)
+static bool sort_page(struct lruvec *lruvec, struct page *page,
+		      struct scan_control *sc, int tier_idx)
 {
 	bool success;
 	int gen = page_lru_gen(page);
@@ -4193,7 +4194,8 @@ static bool sort_page(struct lruvec *lruvec, struct page *page, int tier_idx)
 		return true;
 	}
 
-	if (tier > tier_idx) {
+	/* protected */
+	if (tier > tier_idx || tier == MAX_NR_TIERS - 1) {
 		int hist = lru_hist_from_seq(lrugen->min_seq[type]);
 
 		gen = page_inc_gen(lruvec, page, false);
@@ -4204,6 +4206,14 @@ static bool sort_page(struct lruvec *lruvec, struct page *page, int tier_idx)
 		return true;
 	}
 
+	/* ineligible */
+	if (zone > sc->reclaim_idx) {
+		gen = page_inc_gen(lruvec, page, false);
+		list_move_tail(&page->lru, &lrugen->lists[gen][type][zone]);
+		return true;
+	}
+
+	/* waiting for writeback */
 	if (PageLocked(page) || PageWriteback(page) ||
 	    (type == LRU_GEN_FILE && PageDirty(page))) {
 		gen = page_inc_gen(lruvec, page, true);
@@ -4239,7 +4249,8 @@ static bool isolate_page(struct lruvec *lruvec, struct page *page, struct scan_c
 static int scan_pages(struct lruvec *lruvec, struct scan_control *sc,
 		      int type, int tier, struct list_head *list)
 {
-	int gen, zone;
+	int i;
+	int gen;
 	enum vm_event_item item;
 	int sorted = 0;
 	int scanned = 0;
@@ -4255,9 +4266,10 @@ static int scan_pages(struct lruvec *lruvec, struct scan_control *sc,
 
 	gen = lru_gen_from_seq(lrugen->min_seq[type]);
 
-	for (zone = sc->reclaim_idx; zone >= 0; zone--) {
+	for (i = MAX_NR_ZONES; i > 0; i--) {
 		LIST_HEAD(moved);
 		int skipped = 0;
+		int zone = (sc->reclaim_idx + i) % MAX_NR_ZONES;
 		struct list_head *head = &lrugen->lists[gen][type][zone];
 
 		while (!list_empty(head)) {
@@ -4274,7 +4286,7 @@ static int scan_pages(struct lruvec *lruvec, struct scan_control *sc,
 
 			scanned += delta;
 
-			if (sort_page(lruvec, page, tier))
+			if (sort_page(lruvec, page, sc, tier))
 				sorted += delta;
 			else if (isolate_page(lruvec, page, sc)) {
 				list_add(&page->lru, list);
@@ -4411,10 +4423,13 @@ static int evict_pages(struct lruvec *lruvec, struct scan_control *sc, int swapp
 	int type;
 	int scanned;
 	int reclaimed;
+	int nr_taken = 0;
+	int file;
 	LIST_HEAD(list);
 	struct page *page;
 	enum vm_event_item item;
 	struct lru_gen_mm_walk *walk;
+	struct reclaim_stat stat = {};
 	struct mem_cgroup *memcg = lruvec_memcg(lruvec);
 	struct pglist_data *pgdat = lruvec_pgdat(lruvec);
 
@@ -4428,22 +4443,29 @@ static int evict_pages(struct lruvec *lruvec, struct scan_control *sc, int swapp
 	if (get_nr_gens(lruvec, !swappiness) == MIN_NR_GENS)
 		scanned = 0;
 
+	file = (type == LRU_GEN_FILE);
+	list_for_each_entry(page, &list, lru)
+		nr_taken++;
+	if (nr_taken)
+		__mod_node_page_state(pgdat, NR_ISOLATED_ANON + file, nr_taken);
+
 	spin_unlock_irq(&pgdat->lru_lock);
 
 	if (list_empty(&list))
 		return scanned;
 
-	reclaimed = shrink_page_list(&list, pgdat, sc, 0, NULL, false);
+	reclaimed = shrink_page_list(&list, pgdat, sc, 0, &stat, false);
 
 	/*
 	 * To avoid livelock, don't add rejected pages back to the same lists
-	 * they were isolated from. See lru_gen_add_page().
+	 * they were isolated from. See lru_gen_add_page(). Dirty and
+	 * writeback pages stay inactive so they remain reclaim candidates.
 	 */
 	list_for_each_entry(page, &list, lru) {
 		ClearPageReferenced(page);
 		ClearPageWorkingset(page);
 
-		if (PageReclaim(page) && (PageDirty(page) || PageWriteback(page)))
+		if (PageDirty(page) || PageWriteback(page))
 			ClearPageActive(page);
 		else
 			SetPageActive(page);
@@ -4452,6 +4474,9 @@ static int evict_pages(struct lruvec *lruvec, struct scan_control *sc, int swapp
 	spin_lock_irq(&pgdat->lru_lock);
 
 	putback_inactive_pages(lruvec, &list);
+
+	if (nr_taken)
+		__mod_node_page_state(pgdat, NR_ISOLATED_ANON + file, -nr_taken);
 
 	walk = current->reclaim_state ? current->reclaim_state->mm_walk : NULL;
 	if (walk && walk->batched)
@@ -4466,6 +4491,18 @@ static int evict_pages(struct lruvec *lruvec, struct scan_control *sc, int swapp
 
 	mem_cgroup_uncharge_list(&list);
 	free_unref_page_list(&list);
+
+	if (stat.nr_unqueued_dirty == nr_taken)
+		wakeup_flusher_threads(WB_REASON_VMSCAN);
+
+	sc->nr.dirty += stat.nr_dirty;
+	sc->nr.congested += stat.nr_congested;
+	sc->nr.unqueued_dirty += stat.nr_unqueued_dirty;
+	sc->nr.writeback += stat.nr_writeback;
+	sc->nr.immediate += stat.nr_immediate;
+	sc->nr.taken += nr_taken;
+	if (file)
+		sc->nr.file_taken += nr_taken;
 
 	sc->nr_reclaimed += reclaimed;
 
