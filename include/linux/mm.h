@@ -2896,4 +2896,15 @@ static inline void setup_nr_node_ids(void) {}
 #endif
 
 #endif /* __KERNEL__ */
+
+/* Backport from 5.1 for MGLRU pinned pages (4.19) */
+#define GUP_PIN_COUNTING_BIAS (1024)
+
+static inline bool page_maybe_dma_pinned(struct page *page)
+{
+	if (PageHuge(page))
+		return false;
+	return page_count(page) > GUP_PIN_COUNTING_BIAS;
+}
+
 #endif /* _LINUX_MM_H */
