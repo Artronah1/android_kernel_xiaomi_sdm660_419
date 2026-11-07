@@ -1293,6 +1293,20 @@ static int msm_routing_get_adm_topology(int fedai_id, int session_type,
 			topology = NULL_COPP_TOPOLOGY;
 	}
 
+	/*
+	 * TX topology 0x1000FFF1 is assigned by the ACDB calibration for
+	 * some capture devices but is not registered in adsp_avs_config.acdb,
+	 * so the ADSP rejects it with EUNSUPPORTED and TX capture fails
+	 * (INT3_MI2S mic). Substitute the null COPP topology, which is the
+	 * topology the DSP falls back to anyway when the requested one is
+	 * not implemented, so capture works without changing audio quality.
+	 */
+	if (session_type == SESSION_TYPE_TX && topology == 0x1000FFF1) {
+		pr_info("%s: TX topology 0x1000FFF1 -> NULL_COPP_TOPOLOGY\n",
+				__func__);
+		topology = NULL_COPP_TOPOLOGY;
+	}
+
 	pr_debug("%s: Using topology %d\n", __func__, topology);
 	return topology;
 }
