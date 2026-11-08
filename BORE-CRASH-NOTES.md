@@ -99,3 +99,29 @@ Run the fork storm; poll `/proc/sys/kernel/random/boot_id`; expect survive ≥60
   `entity_lag()`. Locking-neutral, likely innocent.
 - `sched_init_bore()` never runs (`bore_reciprocal_lut[]` all-zero; `sched_credit_key`
   never enabled; banner never prints) → wrong averaging only, not a crash.
+
+## Follow-up: 4 known BORE defects (fixed, device-verified)
+All four deviations of our 4.19 port from upstream BORE 7.0.1 were reconciled on
+2026-11-09 (5 files, `sched(bore):` commit). Kernel built/ flashed as
+`Artronah-San-Kernel-KSU-SUSFS-tulip-20261109-0026.zip` (md5 `cff2946d88f9c0d8cb2815144a429665`),
+boot_id `125cfa14-14a3-49cd-9aef-0f0be3837028`.
+
+1. `sched_init_bore()` never ran — its only call site sat inside a dead `/* */`
+   block in `cpuset_cpu_active()` (core.c:7315), so `bore_reciprocal_lut[]` stayed
+   all-zero (burst averaging = 0 for cnt>1), `sched_credit_key` was never enabled
+   and the banner never printed. Now called from `sched_init()` before
+   `wait_bit_init()`; stray line removed. **Verified:** dmesg prints
+   `BORE CPU Scheduler modification 7.0.1 by Masahito Suzuki`.
+2. `entity_lag()` half-clamp (`if (bore_enabled()) limit >>= 1;`) — reviewed, not
+   a defect; left as-is.
+3. Tunable drift vs upstream: `sched_burst_penalty_scale` 1280→1536,
+   `sched_burst_cache_lifetime` 60 ms→75 ms (75000000 ns). **Verified** via sysctl.
+4. Reweight path did not match upstream `reweight_task_by_prio()`: added
+   `bore_reweight_task()` in fair.c (skips `task_has_idle_policy()`; `se->on_rq`
+   → `reweight_entity()` with `stop_update`, else sets `se->load.weight`;
+   always sets `inv_weight`), wired both call sites
+   (`readjust_all_task_weights()`, `bore_eevdf_commit()`); `binary_smooth()` now
+   rounds up; `update_curr_bore()` returns early on `stop_update`.
+
+Fork-storm battery on the new kernel: survived every round (boot_id unchanged,
+uptime → ~401 s), 0 BUG/Oops/KASAN/watchdog/lockup/hung-task/RCU-stall.

@@ -3097,6 +3097,38 @@ void reweight_task(struct task_struct *p, int prio)
 	load->inv_weight = sched_prio_to_wmult[prio];
 }
 
+#ifdef CONFIG_SCHED_BORE
+/*
+ * BORE weight commit, matching upstream 7.0.1 reweight_task_by_prio():
+ *  - idle-policy tasks keep their WEIGHT_IDLEPRIO and are skipped;
+ *  - an on-rq entity is reweighted through reweight_entity() under the
+ *    caller's rq->lock, with stop_update set so update_curr_bore() does not
+ *    re-enter the penalty calculation mid-reweight;
+ *  - an off-rq entity only gets its static load weight updated (no runqueue
+ *    bookkeeping, which is only valid for a queued entity).
+ * This lives in fair.c because reweight_entity() is static here; bore.c is a
+ * separate translation unit and cannot call it directly.
+ */
+void bore_reweight_task(struct task_struct *p, int prio)
+{
+	struct sched_entity *se = &p->se;
+	unsigned long weight = scale_load(sched_prio_to_weight[prio]);
+
+	if (task_has_idle_policy(p))
+		return;
+
+	if (se->on_rq) {
+		p->bore.stop_update = true;
+		reweight_entity(cfs_rq_of(se), se, weight, weight);
+		p->bore.stop_update = false;
+	} else {
+		se->load.weight = weight;
+	}
+
+	se->load.inv_weight = sched_prio_to_wmult[prio];
+}
+#endif /* CONFIG_SCHED_BORE */
+
 #ifdef CONFIG_FAIR_GROUP_SCHED
 #ifdef CONFIG_SMP
 /*

@@ -7312,7 +7312,6 @@ static void cpuset_cpu_active(void)
 		if (--num_cpus_frozen)
 			return;
 		/*
-	sched_init_bore();
 		 * This is the last CPU online operation. So fall through and
 		 * restore the original sched domains by considering the
 		 * cpuset configurations.
@@ -7529,6 +7528,10 @@ void __init sched_init(void)
 {
 	int i, j;
 	unsigned long alloc_size = 0, ptr;
+
+#ifdef CONFIG_SCHED_BORE
+	sched_init_bore();
+#endif
 
 	wait_bit_init();
 

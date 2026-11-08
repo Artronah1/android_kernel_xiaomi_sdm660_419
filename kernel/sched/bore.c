@@ -7,9 +7,9 @@
  * upstream 7.0.1 (protect_slice, sched_delayed, requeue_delayed_entity,
  * base_slice) are intentionally omitted — this tree has no such machinery.
  *
- * Deliberately kept from the previous 6.8 port (behaviour, not bugs):
- *   - sched_burst_penalty_scale = 1280   (upstream 7.0.1: 1536)
- *   - sched_burst_cache_lifetime = 60ms   (upstream 7.0.1: 75ms)
+ * Tuning defaults now match upstream 7.0.1 exactly:
+ *   - sched_burst_penalty_scale = 1536
+ *   - sched_burst_cache_lifetime = 75ms
  * Both remain runtime-tunable via sysctl.
  */
 #include "sched.h"
@@ -22,8 +22,8 @@ DEFINE_STATIC_KEY_TRUE(sched_bore_enabled);
 u32 __read_mostly sched_burst_inherit_type = 2;
 u32 __read_mostly sched_burst_smoothness = 1;
 u32 __read_mostly sched_burst_penalty_offset = 24;
-u32 __read_mostly sched_burst_penalty_scale = 1280;
-u32 __read_mostly sched_burst_cache_lifetime = 60000000;
+u32 __read_mostly sched_burst_penalty_scale = 1536;
+u32 __read_mostly sched_burst_cache_lifetime = 75000000;
 u32 __read_mostly sched_credit_cap_us = 16000;
 DEFINE_STATIC_KEY_FALSE(sched_credit_key);
 
@@ -70,7 +70,8 @@ static u32 binary_smooth(u32 new, u32 old)
 	s32 inc = (s32)new - (s32)old;
 
 	if (inc >= 0)
-		return old + ((u32)inc >> sched_burst_smoothness);
+		return old + (((u32)inc + (1U << sched_burst_smoothness) - 1)
+			      >> sched_burst_smoothness);
 	return new;
 }
 
@@ -126,6 +127,13 @@ void update_curr_bore(struct task_struct *p, u64 delta_exec)
 	u32 curr;
 
 	if (!bore_enabled())
+		return;
+	/*
+	 * Match upstream 7.0.1: while a reweight is in flight (stop_update
+	 * set by bore_eevdf_commit()/readjust_all_task_weights()) do not
+	 * accumulate burst time or recompute the penalty.
+	 */
+	if (p->bore.stop_update)
 		return;
 
 	p->bore.burst_time += delta_exec;
@@ -422,7 +430,7 @@ static void readjust_all_task_weights(void)
 			continue;
 		rq = task_rq_lock(task, &rf);
 		update_rq_clock(rq);
-		reweight_task(task, effective_prio_bore(task));
+		bore_reweight_task(task, effective_prio_bore(task));
 		task_rq_unlock(rq, task, &rf);
 	}
 	write_unlock_irq(&tasklist_lock);

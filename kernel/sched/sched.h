@@ -2041,6 +2041,9 @@ extern void reweight_task(struct task_struct *p, int prio);
 #if defined(CONFIG_SCHED_EEVDF) && defined(CONFIG_SCHED_BORE)
 void sched_eevdf_apply_slice(struct sched_entity *se, u64 slice);
 #endif
+#ifdef CONFIG_SCHED_BORE
+void bore_reweight_task(struct task_struct *p, int prio);
+#endif
 
 extern void resched_curr(struct rq *rq);
 extern void resched_cpu(int cpu);

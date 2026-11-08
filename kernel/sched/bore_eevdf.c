@@ -39,7 +39,7 @@ static void bore_eevdf_commit(struct task_struct *p)
 		return;
 
 	p->bore.stop_update = 1;
-	reweight_task(p, effective_prio_bore(p));
+	bore_reweight_task(p, effective_prio_bore(p));
 	sched_eevdf_apply_slice(&p->se, bore_eevdf_slice(p));
 	p->bore.stop_update = 0;
 }
