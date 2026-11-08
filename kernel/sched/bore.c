@@ -354,9 +354,22 @@ void task_fork_bore(struct task_struct *p)
 	p->bore.burst_time = 0;
 	p->bore.credit_sleep = 0;
 	bore_set_penalty(p);
-#ifdef CONFIG_SCHED_EEVDF
-	bore_eevdf_commit(p);
-#endif
+	/*
+	 * NOTE: deliberately NO bore_eevdf_commit() here.
+	 *
+	 * task_fork_bore() is called from sched_post_fork() in kernel/fork.c,
+	 * which runs *after* tasklist_lock is dropped and *without* rq->lock.
+	 * Committing there calls reweight_task()/reweight_entity(), which
+	 * unconditionally touches the destination cfs_rq (dequeue_load_avg/
+	 * enqueue_load_avg/mutating avg.load_*) -> a lockless, cross-CPU
+	 * corruption of the runqueue while a fork storm is in flight.
+	 *
+	 * The running-task paths (update_curr_bore(), restart_burst_bore())
+	 * commit under rq->lock, and the child's BORE weight is (re)applied
+	 * there on its first run; the fork-time weight is inherited from the
+	 * parent.  This matches upstream BORE 4.19 legacy, whose
+	 * sched_post_fork_bore() only sets the penalty fields.
+	 */
 }
 
 void reset_task_bore(struct task_struct *p)

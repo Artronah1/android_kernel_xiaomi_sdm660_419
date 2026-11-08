@@ -26,6 +26,17 @@ static void bore_eevdf_commit(struct task_struct *p)
 		return;
 	if (!p->se.deadline)
 		return;
+	/*
+	 * Only a task already on a runqueue may be reweighted.  At fork the
+	 * child's sched_entity has on_rq==0 and its se.deadline/slice/vlag are
+	 * inherited garbage from dup_task_struct(); reweight_task()/
+	 * sched_eevdf_apply_slice() would then corrupt the destination cfs_rq
+	 * (and, from sched_post_fork(), do so without rq->lock).  The base
+	 * weight is already set by set_load_weight() during sched_fork(), and
+	 * the running-task path (update_curr_bore) still commits normally.
+	 */
+	if (!p->se.on_rq)
+		return;
 
 	p->bore.stop_update = 1;
 	reweight_task(p, effective_prio_bore(p));
