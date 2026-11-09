@@ -42,6 +42,16 @@ const char *buf, size_t count)					\
 	return count;						\
 }
 
+/*
+ * Built-in input boost defaults for tulip (sdm660: Silver cpu0-3, Gold cpu4-7).
+ * Without these the driver comes up with input_boost_freq = 0 (no-op), so the
+ * boost only works if userspace writes the frequencies. Frequencies here are
+ * the max of each cluster; sysfs can still override them at runtime.
+ */
+#define INPUT_BOOST_FREQ_SILVER	1612800
+#define INPUT_BOOST_FREQ_GOLD	1804800
+#define INPUT_BOOST_MS_DEFAULT	80
+
 struct cpu_sync {
 	int cpu;
 	unsigned int input_boost_min;
@@ -54,12 +64,12 @@ static struct kthread_work input_boost_work;
 
 static bool input_boost_enabled;
 
-static unsigned int input_boost_ms = 40;
+static unsigned int input_boost_ms = INPUT_BOOST_MS_DEFAULT;
 show_one(input_boost_ms);
 store_one(input_boost_ms);
 cpu_boost_attr_rw(input_boost_ms);
 
-static unsigned int sched_boost_on_input;
+static unsigned int sched_boost_on_input = 1;
 show_one(sched_boost_on_input);
 store_one(sched_boost_on_input);
 cpu_boost_attr_rw(sched_boost_on_input);
@@ -373,7 +383,11 @@ static int cpu_boost_init(void)
 	for_each_possible_cpu(cpu) {
 		s = &per_cpu(sync_info, cpu);
 		s->cpu = cpu;
+		/* Built-in defaults so input boost works with no userspace setup */
+		s->input_boost_freq = (cpu < 4) ? INPUT_BOOST_FREQ_SILVER :
+						  INPUT_BOOST_FREQ_GOLD;
 	}
+	input_boost_enabled = true;
 	cpufreq_register_notifier(&boost_adjust_nb, CPUFREQ_POLICY_NOTIFIER);
 
 	cpu_boost_kobj = kobject_create_and_add("cpu_boost",
