@@ -12,6 +12,18 @@
  * GNU General Public License for more details.
  */
 
+/*
+ * The tracepoint definitions for trace/events/msm_vidc.h are normally
+ * emitted by msm_vidc_debug.c, but that object is only built with
+ * CONFIG_DEBUG_FS. This object is always built with the driver, so emit
+ * them here when DEBUG_FS is off. The #define has to come before any
+ * include that pulls in trace/events/msm_vidc.h (i.e. msm_vidc_debug.h),
+ * otherwise define_trace.h never sees it.
+ */
+#if defined(CONFIG_TRACEPOINTS) && !defined(CONFIG_DEBUG_FS)
+#define CREATE_TRACE_POINTS
+#endif
+
 #include <linux/jiffies.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
@@ -26,10 +38,6 @@
 #include "vidc_hfi.h"
 #include "msm_vidc_debug.h"
 #include "msm_vidc_dcvs.h"
-
-#ifdef CONFIG_TRACEPOINTS
-#define CREATE_TRACE_POINTS
-#endif
 
 #define IS_ALREADY_IN_STATE(__p, __d) ({\
 	int __rc = (__p >= __d);\
