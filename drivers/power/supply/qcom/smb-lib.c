@@ -2167,10 +2167,16 @@ int smblib_get_prop_battery_full_design(struct smb_charger *chg,
 		return -EINVAL;
 
 	chip = power_supply_get_drvdata(chg->bms_psy);
+	/*
+	 * The DTS qcom,battery-full-design value is in mAh, but the
+	 * power_supply CHARGE_FULL_DESIGN property is defined in uAh
+	 * (the bms node reports nom_cap_uah * 1000). Scale it so the
+	 * battery node matches and userspace sees a sane design cap.
+	 */
 	if (chip->battery_full_design)
-		val->intval = chip->battery_full_design;
+		val->intval = chip->battery_full_design * 1000;
 	else
-		val->intval = 4000;
+		val->intval = 4000000;
 
 	return 0;
 }
