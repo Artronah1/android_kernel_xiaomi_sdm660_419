@@ -52,7 +52,15 @@ static DEFINE_SPINLOCK(suspend_lock);
 #define TAG "msm_adreno_tz: "
 
 #ifdef CONFIG_ADRENOBOOST
-static unsigned int adrenoboost = 0;
+/*
+ * Built-in default boost level (0=off, 1=low, 2=med, 3=high). Multiplier is
+ * 1 + (level*3)/2 on busy_time: 1->2x, 2->4x, 3->5x. Default 3 (max) — the
+ * GPU governor pins at 430 MHz under load (avg ~420 vs ~271 with boost off).
+ * This costs battery: measurable higher drain under sustained GPU load.
+ * Userspace can lower it at runtime, e.g.
+ *   echo 1 > /sys/class/devfreq/5000000.qcom,kgsl-3d0/adrenoboost
+ */
+static unsigned int adrenoboost = 3;
 #endif
 static u64 suspend_time;
 static u64 suspend_start;
