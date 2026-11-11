@@ -3291,7 +3291,7 @@ loff_t max_file_blocks(struct inode *inode)
 	 * fit within U32_MAX + 1 data units.
 	 */
 
-	result = min(result, (((loff_t)U32_MAX + 1) * 4096) >> F2FS_BLKSIZE_BITS);
+	result = min_t(u64, result, (((loff_t)U32_MAX + 1) * 4096) >> F2FS_BLKSIZE_BITS);
 
 	return result;
 }
