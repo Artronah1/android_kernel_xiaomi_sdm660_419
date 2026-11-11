@@ -969,7 +969,13 @@ alloc_new:
 	if (fio->io_wbc)
 		wbc_account_io(fio->io_wbc, fio->page, PAGE_SIZE);
 
-	inc_page_count(fio->sbi, WB_DATA_TYPE(page, false));
+	/*
+	 * Use fio->page rather than the local @page, which may be
+	 * fio->encrypted_page: the bounced page can be freed by
+	 * f2fs_write_end_io() once the earlier bio is submitted, so
+	 * dereferencing it in f2fs_is_cp_guaranteed() is a UAF.
+	 */
+	inc_page_count(fio->sbi, WB_DATA_TYPE(fio->page, false));
 
 	*fio->last_block = fio->new_blkaddr;
 	*fio->bio = bio;
