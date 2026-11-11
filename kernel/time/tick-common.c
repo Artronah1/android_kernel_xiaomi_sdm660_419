@@ -191,11 +191,22 @@ static void tick_setup_device(struct tick_device *td,
 		 * this cpu:
 		 */
 		if (tick_do_timer_cpu == TICK_DO_TIMER_BOOT) {
+			ktime_t next_p;
+			u32 rem;
+
 			if (!tick_nohz_full_cpu(cpu))
 				tick_do_timer_cpu = cpu;
 			else
 				tick_do_timer_cpu = TICK_DO_TIMER_NONE;
-			tick_next_period = ktime_get();
+
+			next_p = ktime_get();
+			div_u64_rem(next_p, TICK_NSEC, &rem);
+			if (rem) {
+				next_p -= rem;
+				next_p += TICK_NSEC;
+			}
+
+			tick_next_period = next_p;
 			tick_period = NSEC_PER_SEC / HZ;
 		}
 
