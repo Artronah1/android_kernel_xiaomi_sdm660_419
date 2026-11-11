@@ -470,17 +470,10 @@ debug_init(struct hrtimer *timer, clockid_t clockid,
 	trace_hrtimer_init(timer, clockid, mode);
 }
 
-static inline void debug_activate(struct hrtimer *timer,
-				  enum hrtimer_mode mode)
+static inline void debug_activate(struct hrtimer *timer, enum hrtimer_mode mode, bool was_armed)
 {
 	debug_hrtimer_activate(timer, mode);
-	trace_hrtimer_start(timer, mode);
-}
-
-static inline void debug_deactivate(struct hrtimer *timer)
-{
-	debug_hrtimer_deactivate(timer);
-	trace_hrtimer_cancel(timer);
+	trace_hrtimer_start(timer, mode, was_armed);
 }
 
 static struct hrtimer_clock_base *
@@ -984,9 +977,9 @@ EXPORT_SYMBOL_GPL(hrtimer_forward);
  */
 static int enqueue_hrtimer(struct hrtimer *timer,
 			   struct hrtimer_clock_base *base,
-			   enum hrtimer_mode mode)
+			   enum hrtimer_mode mode, bool was_armed)
 {
-	debug_activate(timer, mode);
+	debug_activate(timer, mode, was_armed);
 
 	base->cpu_base->active_bases |= 1 << base->index;
 
@@ -1057,7 +1050,7 @@ remove_hrtimer(struct hrtimer *timer, struct hrtimer_clock_base *base,
 		 * reprogramming happens in the interrupt handler. This is a
 		 * rare case and less expensive than a smp call.
 		 */
-		debug_deactivate(timer);
+		debug_hrtimer_deactivate(timer);
 		reprogram = base->cpu_base == this_cpu_ptr(&hrtimer_bases);
 
 		/*
@@ -1124,7 +1117,7 @@ static int __hrtimer_start_range_ns(struct hrtimer *timer, ktime_t tim,
 				    struct hrtimer_clock_base *base)
 {
 	struct hrtimer_clock_base *new_base;
-	bool force_local, first;
+	bool force_local, first, was_armed;
 
 	/*
 	 * If the timer is on the local cpu base and is the first expiring
@@ -1148,7 +1141,7 @@ static int __hrtimer_start_range_ns(struct hrtimer *timer, ktime_t tim,
 	 * avoids programming the underlying clock event twice (once at
 	 * removal and once after enqueue).
 	 */
-	remove_hrtimer(timer, base, true, force_local);
+	was_armed = remove_hrtimer(timer, base, true, force_local);
 
 	if (mode & HRTIMER_MODE_REL)
 		tim = ktime_add_safe(tim, base->get_time());
@@ -1165,7 +1158,7 @@ static int __hrtimer_start_range_ns(struct hrtimer *timer, ktime_t tim,
 		new_base = base;
 	}
 
-	first = enqueue_hrtimer(timer, new_base, mode);
+	first = enqueue_hrtimer(timer, new_base, mode, was_armed);
 	if (!force_local)
 		return first;
 
@@ -1245,8 +1238,11 @@ int hrtimer_try_to_cancel(struct hrtimer *timer)
 
 	base = lock_hrtimer_base(timer, &flags);
 
-	if (!hrtimer_callback_running(timer))
+	if (!hrtimer_callback_running(timer)) {
 		ret = remove_hrtimer(timer, base, false, false);
+		if (ret)
+			trace_hrtimer_cancel(timer);
+	}
 
 	unlock_hrtimer_base(timer, &flags);
 
@@ -1514,7 +1510,7 @@ static void __run_hrtimer(struct hrtimer_cpu_base *cpu_base,
 	 */
 	if (restart != HRTIMER_NORESTART &&
 	    !(timer->state & HRTIMER_STATE_ENQUEUED))
-		enqueue_hrtimer(timer, base, HRTIMER_MODE_ABS);
+		enqueue_hrtimer(timer, base, HRTIMER_MODE_ABS, false);
 
 	/*
 	 * Separate the ->running assignment from the ->state assignment.
@@ -1958,7 +1954,7 @@ static void migrate_hrtimer_list(struct hrtimer_clock_base *old_base,
 		timer = container_of(node, struct hrtimer, node);
 		if (is_hotplug)
 			BUG_ON(hrtimer_callback_running(timer));
-		debug_deactivate(timer);
+		debug_hrtimer_deactivate(timer);
 
 		/*
 		 * Mark it as ENQUEUED not INACTIVE otherwise the
@@ -1982,7 +1978,7 @@ static void migrate_hrtimer_list(struct hrtimer_clock_base *old_base,
 		 * sort out already expired timers and reprogram the
 		 * event device.
 		 */
-		enqueue_hrtimer(timer, new_base, HRTIMER_MODE_ABS);
+		enqueue_hrtimer(timer, new_base, HRTIMER_MODE_ABS, true);
 	}
 
 	/* Re-queue pinned timers for non-hotplug usecase */
@@ -1990,7 +1986,7 @@ static void migrate_hrtimer_list(struct hrtimer_clock_base *old_base,
 		timer = container_of(node, struct hrtimer, node);
 
 		timerqueue_del(&pinned, &timer->node);
-		enqueue_hrtimer(timer, old_base, HRTIMER_MODE_ABS);
+		enqueue_hrtimer(timer, old_base, HRTIMER_MODE_ABS, true);
 	}
 }
 
