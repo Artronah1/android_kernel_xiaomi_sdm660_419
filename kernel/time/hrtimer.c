@@ -729,9 +729,15 @@ static void retrigger_next_event(void *arg)
 {
 	struct hrtimer_cpu_base *base = this_cpu_ptr(&hrtimer_bases);
 
-	if (!__hrtimer_hres_active(base))
-		return;
-
+	/*
+	 * In periodic low resolution mode, the next softirq expiration
+	 * must also be updated. On the 4.19 CAF base the clock base is
+	 * fully updated below (hrtimer_force_reprogram() ->
+	 * hrtimer_update_next_event() refreshes softirq_expires_next), and
+	 * the hotplug migration path already calls
+	 * hrtimer_update_softirq_timer(), so dropping the early bail-out is
+	 * sufficient here.
+	 */
 	raw_spin_lock(&base->lock);
 	hrtimer_update_base(base);
 	hrtimer_force_reprogram(base, 0);
