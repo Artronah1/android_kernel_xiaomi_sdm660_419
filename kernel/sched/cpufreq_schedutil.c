@@ -662,7 +662,12 @@ static ssize_t up_rate_limit_us_store(struct gov_attr_set *attr_set,
 	tunables->up_rate_limit_us = rate_limit_us;
 
 	list_for_each_entry(sg_policy, &attr_set->policy_list, tunables_hook) {
-		sg_policy->up_rate_delay_ns = rate_limit_us * NSEC_PER_USEC;
+		/*
+		 * Cast before multiplication to force 64-bit arithmetic:
+		 * otherwise both operands are promoted to 32-bit unsigned
+		 * long and the multiplication may overflow.
+		 */
+		sg_policy->up_rate_delay_ns = (s64)rate_limit_us * NSEC_PER_USEC;
 		update_min_rate_limit_ns(sg_policy);
 	}
 
@@ -682,7 +687,7 @@ static ssize_t down_rate_limit_us_store(struct gov_attr_set *attr_set,
 	tunables->down_rate_limit_us = rate_limit_us;
 
 	list_for_each_entry(sg_policy, &attr_set->policy_list, tunables_hook) {
-		sg_policy->down_rate_delay_ns = rate_limit_us * NSEC_PER_USEC;
+		sg_policy->down_rate_delay_ns = (s64)rate_limit_us * NSEC_PER_USEC;
 		update_min_rate_limit_ns(sg_policy);
 	}
 
