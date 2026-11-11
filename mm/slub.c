@@ -1122,8 +1122,7 @@ void setup_page_debug(struct kmem_cache *s, struct page *page, void *addr)
 }
 
 static inline int alloc_consistency_checks(struct kmem_cache *s,
-					struct page *page,
-					void *object, unsigned long addr)
+					struct page *page, void *object)
 {
 	if (!check_slab(s, page))
 		return 0;
@@ -1144,7 +1143,7 @@ static noinline int alloc_debug_processing(struct kmem_cache *s,
 					void *object, unsigned long addr)
 {
 	if (s->flags & SLAB_CONSISTENCY_CHECKS) {
-		if (!alloc_consistency_checks(s, page, object, addr))
+		if (!alloc_consistency_checks(s, page, object))
 			goto bad;
 	}
 
