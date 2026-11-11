@@ -2365,11 +2365,21 @@ static int f2fs_ioc_shutdown(struct file *filp, unsigned long arg)
 		goto out;
 	}
 
+	/*
+	 * Serialize against f2fs_remount() and concurrent shutdown callers,
+	 * both of which also stop the gc/discard threads and free sbi->gc_th.
+	 * A plain read lock would not exclude two racing ioctl(F2FS_IOC_SHUTDOWN)
+	 * callers, so take s_umount for writing.
+	 */
+	down_write(&sb->s_umount);
+
 	f2fs_stop_gc_thread(sbi);
 	f2fs_stop_discard_thread(sbi);
 
 	f2fs_drop_discard_cmd(sbi);
 	clear_opt(sbi, DISCARD);
+
+	up_write(&sb->s_umount);
 
 	f2fs_update_time(sbi, REQ_TIME);
 out:
