@@ -1181,7 +1181,7 @@ static int qcom_smem_probe(struct platform_device *pdev)
 		return hwlock_id;
 	}
 
-	smem->hwlock = hwspin_lock_request_specific(hwlock_id);
+	smem->hwlock = devm_hwspin_lock_request_specific(&pdev->dev, hwlock_id);
 	if (!smem->hwlock)
 		return -ENXIO;
 
@@ -1194,7 +1194,9 @@ static int qcom_smem_probe(struct platform_device *pdev)
 		smem->item_count = qcom_smem_get_item_count(smem);
 		break;
 	case SMEM_GLOBAL_HEAP_VERSION:
-		qcom_smem_map_legacy(smem);
+		ret = qcom_smem_map_legacy(smem);
+		if (ret < 0)
+			return ret;
 		smem->item_count = SMEM_ITEM_COUNT;
 		break;
 	default:
@@ -1213,7 +1215,6 @@ static int qcom_smem_probe(struct platform_device *pdev)
 
 static int qcom_smem_remove(struct platform_device *pdev)
 {
-	hwspin_lock_free(__smem->hwlock);
 	__smem = NULL;
 
 	return 0;
