@@ -514,8 +514,15 @@ static int wbt_wake_function(struct wait_queue_entry *curr, unsigned int mode,
 		return -1;
 
 	data->got_token = true;
-	list_del_init(&curr->entry);
 	wake_up_process(data->task);
+	/*
+	 * Delete the entry only after waking up the waiter: it may find the
+	 * token set and return from finish_wait() as soon as the entry is
+	 * removed, clobbering its stack and making data->task invalid here.
+	 * list_del_init_careful() matches the list_empty_careful() test in
+	 * finish_wait().
+	 */
+	list_del_init_careful(&curr->entry);
 	return 1;
 }
 
