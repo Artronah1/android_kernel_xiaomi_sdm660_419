@@ -24,7 +24,13 @@ static int qcom_reset(struct reset_controller_dev *rcdev, unsigned long id)
 	struct qcom_reset_controller *rst = to_qcom_reset_controller(rcdev);
 
 	rcdev->ops->assert(rcdev, id);
-	udelay(rst->reset_map[id].udelay ?: 1); /* use 1 us as default */
+	/*
+	 * fsleep() does not exist in 4.19; use usleep_range() so that longer
+	 * reset delays do not busy-wait.  min must be strictly below max.
+	 */
+	usleep_range(rst->reset_map[id].udelay ?: 1,
+		     (rst->reset_map[id].udelay ?: 1) + 1);
+
 	rcdev->ops->deassert(rcdev, id);
 	return 0;
 }
