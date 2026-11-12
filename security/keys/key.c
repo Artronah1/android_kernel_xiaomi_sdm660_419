@@ -836,9 +836,6 @@ key_ref_t key_create_or_update(key_ref_t keyring_ref,
 
 	key_check(keyring);
 
-	if (!(flags & KEY_ALLOC_BYPASS_RESTRICTION))
-		restrict_link = keyring->restrict_link;
-
 	key_ref = ERR_PTR(-ENOTDIR);
 	if (keyring->type != &key_type_keyring)
 		goto error_put_type;
@@ -867,6 +864,14 @@ key_ref_t key_create_or_update(key_ref_t keyring_ref,
 		key_ref = ERR_PTR(ret);
 		goto error_free_prep;
 	}
+
+	/*
+	 * Sample the keyring's restriction only after keyring->sem has been
+	 * taken by __key_link_begin(), so a concurrent update of the
+	 * restriction cannot race with us.
+	 */
+	if (!(flags & KEY_ALLOC_BYPASS_RESTRICTION))
+		restrict_link = keyring->restrict_link;
 
 	if (restrict_link && restrict_link->check) {
 		ret = restrict_link->check(keyring, index_key.type,
