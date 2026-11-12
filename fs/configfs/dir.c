@@ -419,8 +419,19 @@ static void remove_dir(struct dentry * d)
 	list_del_init(&sd->s_sibling);
 	spin_unlock(&configfs_dirent_lock);
 	configfs_put(sd);
-	if (d_really_is_positive(d))
-		simple_rmdir(d_inode(parent),d);
+	if (d_really_is_positive(d)) {
+		if (unlikely(simple_rmdir(d_inode(parent), d)))
+			pr_warn("remove_dir (%pd): attributes remain", d);
+		else
+			/*
+			 * configfs_get_config_item() takes a hashed dentry as
+			 * proof that ->s_element is still alive.  Our caller
+			 * is about to drop the last reference to the item and
+			 * the VFS will not unhash until after we return, so
+			 * unhash it here.
+			 */
+			d_drop(d);
+	}
 
 	pr_debug(" o %pd removing done (%d)\n", d, d_count(d));
 
@@ -470,8 +481,12 @@ static int configfs_attach_attr(struct configfs_dirent * sd, struct dentry * den
 				(sd->s_type & CONFIGFS_ITEM_BIN_ATTR) ?
 					configfs_init_bin_file :
 					configfs_init_file);
-	if (error)
+	if (error) {
+		spin_lock(&configfs_dirent_lock);
+		sd->s_dentry = NULL;
+		spin_unlock(&configfs_dirent_lock);
 		configfs_put(sd);
+	}
 	return error;
 }
 
