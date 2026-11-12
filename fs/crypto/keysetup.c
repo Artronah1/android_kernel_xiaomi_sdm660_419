@@ -664,7 +664,7 @@ EXPORT_SYMBOL(fscrypt_free_inode);
  */
 int fscrypt_drop_inode(struct inode *inode)
 {
-	const struct fscrypt_info *ci = READ_ONCE(inode->i_crypt_info);
+	const struct fscrypt_info *ci = fscrypt_get_info(inode);
 	const struct fscrypt_master_key *mk;
 
 	/*

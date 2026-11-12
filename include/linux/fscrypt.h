@@ -75,10 +75,26 @@ struct fscrypt_operations {
 			    struct request_queue **devs);
 };
 
+static inline struct fscrypt_info *fscrypt_get_info(const struct inode *inode)
+{
+	/*
+	 * Pairs with the cmpxchg_release() in fscrypt_get_encryption_info().
+	 * I.e., another task may publish ->i_crypt_info concurrently, executing
+	 * a RELEASE barrier.  We need to use smp_load_acquire() here to safely
+	 * ACQUIRE the memory the other task published.
+	 */
+	return smp_load_acquire(&inode->i_crypt_info);
+}
+
+/**
+ * fscrypt_has_encryption_key() - check whether an inode has had its key set up
+ * @inode: the inode to check
+ *
+ * Return: %true if the inode has had its encryption key set up, else %false.
+ */
 static inline bool fscrypt_has_encryption_key(const struct inode *inode)
 {
-	/* pairs with cmpxchg_release() in fscrypt_get_encryption_info() */
-	return READ_ONCE(inode->i_crypt_info) != NULL;
+	return fscrypt_get_info(inode) != NULL;
 }
 
 /**
@@ -263,6 +279,11 @@ const char *fscrypt_get_symlink(struct inode *inode, const void *caddr,
 int fscrypt_symlink_getattr(const struct path *path, struct kstat *stat);
 
 #else  /* !CONFIG_FS_ENCRYPTION */
+
+static inline struct fscrypt_info *fscrypt_get_info(const struct inode *inode)
+{
+	return NULL;
+}
 
 static inline bool fscrypt_has_encryption_key(const struct inode *inode)
 {
