@@ -3746,8 +3746,13 @@ static int kmem_cache_open(struct kmem_cache *s, slab_flags_t flags)
 	if (alloc_kmem_cache_cpus(s))
 		return 0;
 
-	free_kmem_cache_nodes(s);
 error:
+	/*
+	 * Release everything set up so far.  The caller
+	 * (kmem_cache_create) frees the cache itself on failure, so we must
+	 * not leak the random_seq, percpu or node structures allocated above.
+	 */
+	__kmem_cache_release(s);
 	if (flags & SLAB_PANIC)
 		panic("Cannot create slab %s size=%u realsize=%u order=%u offset=%u flags=%lx\n",
 		      s->name, s->size, s->size,
