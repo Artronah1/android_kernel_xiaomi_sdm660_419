@@ -4258,6 +4258,17 @@ static int __clk_core_init(struct clk_core *core)
 			__clk_set_parent_after(orphan, parent, NULL);
 			__clk_recalc_accuracies(orphan);
 			__clk_recalc_rates(orphan, 0);
+
+			/*
+			 * __clk_init_parent() sets the initial req_rate to 0
+			 * for an orphan clock without clk_ops::recalc_rate.
+			 * 'req_rate' is used by clk_set_rate_range() and
+			 * clk_put() to trigger a clk_set_rate() whenever the
+			 * boundaries are modified, so make sure it is
+			 * non-zero and clk_set_rate_range() does not drop the
+			 * frequency.
+			 */
+			orphan->req_rate = orphan->rate;
 			__clk_core_update_orphan_hold_state(orphan);
 		}
 	}
