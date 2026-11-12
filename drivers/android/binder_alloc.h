@@ -72,7 +72,7 @@ struct binder_lru_page {
 
 /**
  * struct binder_alloc - per-binder proc state for binder allocator
- * @vma:                vm_area_struct passed to mmap_handler
+ * @vma_addr:           address of vm_area_struct passed to mmap_handler
  *                      (invarient after mmap)
  * @tsk:                tid for task that called init for this proc
  *                      (invariant after init)
@@ -98,7 +98,7 @@ struct binder_lru_page {
  */
 struct binder_alloc {
 	struct mutex mutex;
-	struct vm_area_struct *vma;
+	unsigned long vma_addr;
 	struct mm_struct *vma_vm_mm;
 	unsigned long buffer;
 	struct list_head buffers;

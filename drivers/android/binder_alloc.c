@@ -204,6 +204,32 @@ static void binder_free_page_range(struct binder_alloc *alloc,
 	}
 }
 
+/*
+ * 4.19 has no vma_lookup(); find_vma() is close enough here because the
+ * caller only ever probes a single address that binder itself mapped.
+ */
+static inline struct vm_area_struct *binder_vma_lookup(struct mm_struct *mm,
+						       unsigned long addr)
+{
+	struct vm_area_struct *vma = find_vma(mm, addr);
+
+	if (vma && vma->vm_start <= addr)
+		return vma;
+
+	return NULL;
+}
+
+static inline struct vm_area_struct *binder_alloc_get_vma(
+		struct binder_alloc *alloc)
+{
+	struct vm_area_struct *vma = NULL;
+
+	if (alloc->vma_addr)
+		vma = binder_vma_lookup(alloc->vma_vm_mm, alloc->vma_addr);
+
+	return vma;
+}
+
 static int binder_allocate_page_range(struct binder_alloc *alloc,
 				      unsigned long start, unsigned long end)
 {
@@ -235,7 +261,7 @@ static int binder_allocate_page_range(struct binder_alloc *alloc,
 
 	if (mm) {
 		down_write(&mm->mmap_sem);
-		vma = alloc->vma;
+		vma = binder_vma_lookup(mm, alloc->vma_addr);
 	}
 
 	if (!vma && need_mm) {
@@ -313,30 +339,16 @@ err_no_vma:
 static inline void binder_alloc_set_vma(struct binder_alloc *alloc,
 		struct vm_area_struct *vma)
 {
-	if (vma)
+	unsigned long vm_start = 0;
+
+	if (vma) {
+		vm_start = vma->vm_start;
 		alloc->vma_vm_mm = vma->vm_mm;
-	/*
-	 * If we see alloc->vma is not NULL, buffer data structures set up
-	 * completely. Look at smp_rmb side binder_alloc_get_vma.
-	 * We also want to guarantee new alloc->vma_vm_mm is always visible
-	 * if alloc->vma is set.
-	 */
-	smp_wmb();
-	alloc->vma = vma;
-}
-
-static inline struct vm_area_struct *binder_alloc_get_vma(
-		struct binder_alloc *alloc)
-{
-	struct vm_area_struct *vma = NULL;
-
-	if (alloc->vma) {
-		/* Look at description in binder_alloc_set_vma */
-		smp_rmb();
-		vma = alloc->vma;
 	}
-	return vma;
+
+	alloc->vma_addr = vm_start;
 }
+
 
 static void debug_no_space_locked(struct binder_alloc *alloc)
 {
@@ -899,7 +911,8 @@ void binder_alloc_deferred_release(struct binder_alloc *alloc)
 
 	buffers = 0;
 	mutex_lock(&alloc->mutex);
-	BUG_ON(alloc->vma);
+	BUG_ON(alloc->vma_addr &&
+	       binder_vma_lookup(alloc->vma_vm_mm, alloc->vma_addr));
 
 	while ((n = rb_first(&alloc->allocated_buffers))) {
 		buffer = rb_entry(n, struct binder_buffer, rb_node);
@@ -1042,7 +1055,7 @@ int binder_alloc_get_allocated_count(struct binder_alloc *alloc)
  * @alloc: binder_alloc for this proc
  *
  * Called from binder_vma_close() when releasing address space.
- * Clears alloc->vma to prevent new incoming transactions from
+ * Clears alloc->vma_addr to prevent new incoming transactions from
  * allocating more buffers.
  */
 void binder_alloc_vma_close(struct binder_alloc *alloc)
