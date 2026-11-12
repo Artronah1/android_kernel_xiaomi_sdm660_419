@@ -362,8 +362,11 @@ static int gdsc_init(struct gdsc *sc)
 
 	/* If ALWAYS_ON GDSCs are not ON, turn them ON */
 	if (sc->flags & ALWAYS_ON) {
-		if (!on)
-			gdsc_enable(&sc->pd);
+		if (!on) {
+			ret = gdsc_enable(&sc->pd);
+			if (ret)
+				return ret;
+		}
 		on = true;
 		sc->pd.flags |= GENPD_FLAG_ALWAYS_ON;
 	}
