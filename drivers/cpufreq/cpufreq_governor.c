@@ -109,8 +109,7 @@ void gov_update_cpu_data(struct dbs_data *dbs_data)
 
 			j_cdbs->prev_cpu_idle = get_cpu_idle_time(j, &j_cdbs->prev_update_time,
 								  dbs_data->io_is_busy);
-			if (dbs_data->ignore_nice_load)
-				j_cdbs->prev_cpu_nice = kcpustat_cpu(j).cpustat[CPUTIME_NICE];
+			j_cdbs->prev_cpu_nice = kcpustat_cpu(j).cpustat[CPUTIME_NICE];
 		}
 		mutex_unlock(&policy_dbs->update_mutex);
 	}
@@ -142,7 +141,7 @@ unsigned int dbs_update(struct cpufreq_policy *policy)
 	/* Get Absolute Load */
 	for_each_cpu(j, policy->cpus) {
 		struct cpu_dbs_info *j_cdbs = &per_cpu(cpu_dbs, j);
-		u64 update_time, cur_idle_time;
+		u64 update_time, cur_idle_time, cur_nice;
 		unsigned int idle_time, time_elapsed;
 		unsigned int load;
 
@@ -170,12 +169,12 @@ unsigned int dbs_update(struct cpufreq_policy *policy)
 
 		j_cdbs->prev_cpu_idle = cur_idle_time;
 
-		if (ignore_nice) {
-			u64 cur_nice = kcpustat_cpu(j).cpustat[CPUTIME_NICE];
+		cur_nice = kcpustat_cpu(j).cpustat[CPUTIME_NICE];
 
+		if (ignore_nice)
 			idle_time += div_u64(cur_nice - j_cdbs->prev_cpu_nice, NSEC_PER_USEC);
-			j_cdbs->prev_cpu_nice = cur_nice;
-		}
+
+		j_cdbs->prev_cpu_nice = cur_nice;
 
 		if (unlikely(!time_elapsed)) {
 			/*
@@ -516,7 +515,7 @@ int cpufreq_dbs_governor_start(struct cpufreq_policy *policy)
 	struct dbs_governor *gov = dbs_governor_of(policy);
 	struct policy_dbs_info *policy_dbs = policy->governor_data;
 	struct dbs_data *dbs_data = policy_dbs->dbs_data;
-	unsigned int sampling_rate, ignore_nice, j;
+	unsigned int sampling_rate, j;
 	unsigned int io_busy;
 
 	if (!policy->cur)
@@ -526,7 +525,6 @@ int cpufreq_dbs_governor_start(struct cpufreq_policy *policy)
 	policy_dbs->rate_mult = 1;
 
 	sampling_rate = dbs_data->sampling_rate;
-	ignore_nice = dbs_data->ignore_nice_load;
 
 	mutex_lock(&policy_dbs->update_mutex);
 	io_busy = dbs_data->io_is_busy;
@@ -539,8 +537,7 @@ int cpufreq_dbs_governor_start(struct cpufreq_policy *policy)
 		 */
 		j_cdbs->prev_load = 0;
 
-		if (ignore_nice)
-			j_cdbs->prev_cpu_nice = kcpustat_cpu(j).cpustat[CPUTIME_NICE];
+		j_cdbs->prev_cpu_nice = kcpustat_cpu(j).cpustat[CPUTIME_NICE];
 	}
 	mutex_unlock(&policy_dbs->update_mutex);
 
