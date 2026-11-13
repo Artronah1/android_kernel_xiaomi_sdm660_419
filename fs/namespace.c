@@ -169,16 +169,24 @@ void mnt_release_group_id(struct mount *mnt)
 	mnt->mnt_group_id = 0;
 }
 
-/*
- * vfsmount lock must be held for read
- */
-static inline void mnt_add_count(struct mount *mnt, int n)
+static inline void mnt_inc_count(struct mount *mnt)
 {
 #ifdef CONFIG_SMP
-	this_cpu_add(mnt->mnt_pcp->mnt_count, n);
+	this_cpu_inc(mnt->mnt_pcp->mnt_gets);
 #else
 	preempt_disable();
-	mnt->mnt_count += n;
+	mnt->mnt_count++;
+	preempt_enable();
+#endif
+}
+
+static inline void mnt_dec_count(struct mount *mnt)
+{
+#ifdef CONFIG_SMP
+	this_cpu_inc(mnt->mnt_pcp->mnt_puts);
+#else
+	preempt_disable();
+	mnt->mnt_count--;
 	preempt_enable();
 #endif
 }
@@ -189,14 +197,17 @@ static inline void mnt_add_count(struct mount *mnt, int n)
 unsigned int mnt_get_count(struct mount *mnt)
 {
 #ifdef CONFIG_SMP
-	unsigned int count = 0;
+	unsigned int gets = 0, puts = 0;
 	int cpu;
 
-	for_each_possible_cpu(cpu) {
-		count += per_cpu_ptr(mnt->mnt_pcp, cpu)->mnt_count;
-	}
+	/* puts first, so a put counted here has its get counted below */
+	for_each_possible_cpu(cpu)
+		puts += per_cpu_ptr(mnt->mnt_pcp, cpu)->mnt_puts;
+	smp_mb();	/* pairs with the smp_wmb() in mntput_no_expire() */
+	for_each_possible_cpu(cpu)
+		gets += per_cpu_ptr(mnt->mnt_pcp, cpu)->mnt_gets;
 
-	return count;
+	return gets - puts;
 #else
 	return mnt->mnt_count;
 #endif
@@ -233,7 +244,7 @@ static struct mount *susfs_alloc_unshare_ksu_vfsmnt(const char *name, int old_mn
 		if (!mnt->mnt_pcp)
 			goto out_free_devname;
 
-		this_cpu_add(mnt->mnt_pcp->mnt_count, 1);
+		this_cpu_inc(mnt->mnt_pcp->mnt_gets);
 #else
 		mnt->mnt_count = 1;
 		mnt->mnt_writers = 0;
@@ -288,7 +299,7 @@ static struct mount *susfs_alloc_non_unshare_ksu_vfsmnt(const char *name)
 		if (!mnt->mnt_pcp)
 			goto out_free_devname;
 
-		this_cpu_add(mnt->mnt_pcp->mnt_count, 1);
+		this_cpu_inc(mnt->mnt_pcp->mnt_gets);
 #else
 		mnt->mnt_count = 1;
 		mnt->mnt_writers = 0;
@@ -341,7 +352,7 @@ static struct mount *alloc_vfsmnt(const char *name)
 		if (!mnt->mnt_pcp)
 			goto out_free_devname;
 
-		this_cpu_add(mnt->mnt_pcp->mnt_count, 1);
+		this_cpu_inc(mnt->mnt_pcp->mnt_gets);
 #else
 		mnt->mnt_count = 1;
 		mnt->mnt_writers = 0;
@@ -711,13 +722,13 @@ int __legitimize_mnt(struct vfsmount *bastard, unsigned seq)
 	if (bastard == NULL)
 		return 0;
 	mnt = real_mount(bastard);
-	mnt_add_count(mnt, 1);
+	mnt_inc_count(mnt);
 	smp_mb();		// see mntput_no_expire() and do_umount()
 	if (likely(!read_seqretry(&mount_lock, seq)))
 		return 0;
 	lock_mount_hash();
 	if (unlikely(bastard->mnt_flags & (MNT_SYNC_UMOUNT | MNT_DOOMED))) {
-		mnt_add_count(mnt, -1);
+		mnt_dec_count(mnt);
 		unlock_mount_hash();
 		return 1;
 	}
@@ -980,7 +991,7 @@ void mnt_set_mountpoint(struct mount *mnt,
 			struct mount *child_mnt)
 {
 	mp->m_count++;
-	mnt_add_count(mnt, 1);	/* essentially, that's mntget */
+	mnt_inc_count(mnt);	/* essentially, that's mntget */
 	child_mnt->mnt_mountpoint = dget(mp->m_dentry);
 	child_mnt->mnt_parent = mnt;
 	child_mnt->mnt_mp = mp;
@@ -1034,7 +1045,7 @@ void mnt_change_mountpoint(struct mount *parent, struct mountpoint *mp, struct m
 	old_mountpoint->d_lockref.count--;
 	spin_unlock(&old_mountpoint->d_lock);
 
-	mnt_add_count(old_parent, -1);
+	mnt_dec_count(old_parent);
 }
 
 /*
@@ -1378,7 +1389,8 @@ static void mntput_no_expire(struct mount *mnt)
 		 * non-NULL under rcu_read_lock(), the reference
 		 * we are dropping is not the final one.
 		 */
-		mnt_add_count(mnt, -1);
+		smp_wmb();	/* pairs with the smp_mb() in mnt_get_count() */
+		mnt_dec_count(mnt);
 		rcu_read_unlock();
 		return;
 	}
@@ -1388,7 +1400,7 @@ static void mntput_no_expire(struct mount *mnt)
 	 * mount_lock, we'll see their refcount increment here.
 	 */
 	smp_mb();
-	mnt_add_count(mnt, -1);
+	mnt_dec_count(mnt);
 	if (mnt_get_count(mnt)) {
 		rcu_read_unlock();
 		unlock_mount_hash();
@@ -1441,7 +1453,7 @@ EXPORT_SYMBOL(mntput);
 struct vfsmount *mntget(struct vfsmount *mnt)
 {
 	if (mnt)
-		mnt_add_count(real_mount(mnt), 1);
+		mnt_inc_count(real_mount(mnt));
 	return mnt;
 }
 EXPORT_SYMBOL(mntget);
@@ -1701,7 +1713,7 @@ static void umount_tree(struct mount *mnt, enum umount_tree_flags how)
 		pin_insert_group(&p->mnt_umount, &p->mnt_parent->mnt,
 				 disconnect ? &unmounted : NULL);
 		if (mnt_has_parent(p)) {
-			mnt_add_count(p->mnt_parent, -1);
+			mnt_dec_count(p->mnt_parent);
 			if (!disconnect) {
 				/* Don't forget about p */
 				list_add_tail(&p->mnt_child, &p->mnt_parent->mnt_mounts);
