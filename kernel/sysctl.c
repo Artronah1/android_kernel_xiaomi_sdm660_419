@@ -3061,7 +3061,7 @@ static int do_proc_dointvec_minmax_conv(bool *negp, unsigned long *lvalp,
 		if ((param->min && *param->min > val) ||
 		    (param->max && *param->max < val))
 			return -EINVAL;
-		*valp = val;
+		WRITE_ONCE(*valp, val);
 	} else {
 		int val = *valp;
 		if (val < 0) {
@@ -3132,7 +3132,7 @@ static int do_proc_douintvec_minmax_conv(unsigned long *lvalp,
 		    (param->max && *param->max < val))
 			return -ERANGE;
 
-		*valp = val;
+		WRITE_ONCE(*valp, val);
 	} else {
 		unsigned int val = *valp;
 		*lvalp = (unsigned long) val;
@@ -3298,9 +3298,9 @@ static int __do_proc_doulongvec_minmax(void *data, struct ctl_table *table, int 
 				err = -EINVAL;
 				break;
 			}
-			*i = val;
+			WRITE_ONCE(*i, val);
 		} else {
-			val = convdiv * (*i) / convmul;
+			val = convdiv * READ_ONCE(*i) / convmul;
 			if (!first)
 				proc_put_char(&buffer, &left, '\t');
 			proc_put_long(&buffer, &left, val, false);
