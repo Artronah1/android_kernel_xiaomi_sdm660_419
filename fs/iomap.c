@@ -792,14 +792,24 @@ iomap_write_end(struct inode *inode, loff_t pos, unsigned len,
 	if (iomap->type == IOMAP_INLINE) {
 		ret = iomap_write_end_inline(inode, page, iomap, pos, copied);
 	} else if (iomap->flags & IOMAP_F_BUFFER_HEAD) {
-		ret = generic_write_end(NULL, inode->i_mapping, pos, len,
-				copied, page, NULL);
+		ret = block_write_end(NULL, inode->i_mapping, pos, len, copied,
+				page, NULL);
 	} else {
 		ret = __iomap_write_end(inode, pos, len, copied, page, iomap);
 	}
 
+	/*
+	 * iomap_write_end_inline() and __iomap_write_end() already called
+	 * __generic_write_end() themselves; the buffer_head variant above did
+	 * not, so finish it here.  The page must stay referenced until after
+	 * the page_done callback below.
+	 */
+	if (iomap->flags & IOMAP_F_BUFFER_HEAD)
+		__generic_write_end(inode, pos, ret, page);
+
 	if (iomap->page_done)
 		iomap->page_done(inode, pos, copied, page, iomap);
+	put_page(page);
 
 	if (ret < len)
 		iomap_write_failed(inode, pos, len);
