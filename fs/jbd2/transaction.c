@@ -2270,6 +2270,9 @@ static int journal_unmap_buffer(journal_t *journal, struct buffer_head *bh,
 			write_unlock(&journal->j_state_lock);
 			return -EBUSY;
 		}
+		/* Already zapped buffer? Nothing to do... */
+		if (!bh->b_bdev)
+			return 0;
 		/*
 		 * OK, buffer won't be reachable after truncate. We just clear
 		 * b_modified to not confuse transaction credit accounting, and
