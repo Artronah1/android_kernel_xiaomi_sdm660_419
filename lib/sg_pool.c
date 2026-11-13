@@ -1,4 +1,4 @@
-#include <linux/module.h>
+#include <linux/init.h>
 #include <linux/scatterlist.h>
 #include <linux/mempool.h>
 #include <linux/slab.h>
@@ -157,16 +157,4 @@ cleanup_sdb:
 	return -ENOMEM;
 }
 
-static __exit void sg_pool_exit(void)
-{
-	int i;
-
-	for (i = 0; i < SG_MEMPOOL_NR; i++) {
-		struct sg_pool *sgp = sg_pools + i;
-		mempool_destroy(sgp->pool);
-		kmem_cache_destroy(sgp->slab);
-	}
-}
-
-module_init(sg_pool_init);
-module_exit(sg_pool_exit);
+subsys_initcall(sg_pool_init);
