@@ -2399,9 +2399,16 @@ static void cpuset_hotplug_workfn(struct work_struct *work)
 	static cpumask_t new_cpus;
 	static nodemask_t new_mems;
 	bool cpus_updated, mems_updated;
-	bool on_dfl = is_in_v2_mode();
+	bool on_dfl;
 
 	mutex_lock(&cpuset_mutex);
+
+	/*
+	 * is_in_v2_mode() inspects the cgroup hierarchy, so it must be called
+	 * with cpuset_mutex held; otherwise the hierarchy could switch between
+	 * v1 and v2 right after the check and we would corrupt cpus_allowed.
+	 */
+	on_dfl = is_in_v2_mode();
 
 	/* fetch the available cpus/mems and find out which changed how */
 	cpumask_copy(&new_cpus, cpu_active_mask);
