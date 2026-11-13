@@ -30,6 +30,7 @@
 #include <linux/ptrace.h>
 #include <linux/signal.h>
 #include <linux/signalfd.h>
+#include <linux/rcupdate.h>
 #include <linux/ratelimit.h>
 #include <linux/tracehook.h>
 #include <linux/capability.h>
@@ -1722,6 +1723,18 @@ int kill_pid(struct pid *pid, int sig, int priv)
 	return kill_pid_info(sig, __si_special(priv), pid);
 }
 EXPORT_SYMBOL(kill_pid);
+
+int kill_cad_pid(int sig, int priv)
+{
+	int ret;
+
+	rcu_read_lock();
+	ret = kill_pid(rcu_dereference(cad_pid), sig, priv);
+	rcu_read_unlock();
+
+	return ret;
+}
+EXPORT_SYMBOL(kill_cad_pid);
 
 /*
  * These functions support sending signals using preallocated sigqueue
